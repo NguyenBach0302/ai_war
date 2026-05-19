@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Age of Agents — Multi-Model War Room</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>Age of Agents</h1>
+        <div class="subtitle">Multi-Agent Strategic Arena</div>
+    </div>
+
+    <div class="dashboard" id="dashboard"></div>
+
+    <div class="game-container">
+        <div class="intel-panel panel">
+            <div class="log-title">System Intel</div>
+            <div id="unit-intel-list"></div>
+        </div>
+
+        <div class="map-wrap" id="map-wrap">
+            <canvas id="gameCanvas"></canvas>
+            <div id="deployment-hud" style="display:none;">
+                <div class="hud-title">Deployment Zone</div>
+                <div class="unit-grid" id="unit-buttons"></div>
+            </div>
+        </div>
+        
+        <div class="log-panel">
+            <div class="log-title">Tactical Feed</div>
+            <div id="combat-log"></div>
+        </div>
+    </div>
+
+    <!-- ADVANCED PER-AGENT SETUP -->
+    <div id="setup-overlay">
+        <div class="setup-box panel" style="max-width: 900px; width: 95%;">
+            <div class="setup-title">Strategic Configuration</div>
+            
+            <div class="setup-row" style="margin-bottom: 20px; justify-content: center; gap: 20px;">
+                <label style="font-weight: bold; color: var(--accent);">Combatants:</label>
+                <select id="player-count" style="width: 150px; font-weight: bold;" onchange="Game.updateSetupUI()">
+                    <option value="1">1 Player</option>
+                    <option value="2">2 Players</option>
+                    <option value="3">3 Players</option>
+                    <option value="4" selected>4 Players</option>
+                </select>
+            </div>
+
+            <div class="setup-grid-config" id="agents-config">
+                <!-- Config cards for 4 players -->
+            </div>
+
+            <button class="buy-btn" style="height:45px; font-size:16px; margin-top:20px;" onclick="Game.init()">Launch Session</button>
+        </div>
+    </div>
+
+    <div id="victory-overlay">
+        <h2 id="victory-text">VICTORY</h2>
+        <button class="buy-btn" style="width:200px; height:45px;" onclick="location.reload()">Return to Council</button>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
