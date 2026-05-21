@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
+const path = require('path');
 const pool = require('./db');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
@@ -15,7 +16,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+
+// Serve static files from the 'public' directory
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Explicitly serve index.html for the root route
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // Middleware for authentication
 const authenticate = (req, res, next) => {
@@ -28,6 +36,11 @@ const authenticate = (req, res, next) => {
     } catch (err) {
         res.status(401).json({ message: 'Invalid token' });
     }
+};
+
+const isAdmin = (req, res, next) => {
+    if (req.user?.role !== 0) return res.status(403).json({ message: 'Forbidden: Admin only' });
+    next();
 };
 
 const PROVIDERS = {
@@ -46,6 +59,7 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
     const { username, password } = req.body;
     const hashedPassword = await bcrypt.hash(password, 10);
     try {
+        // Default role is 4 as per DB schema
         const [result] = await pool.query('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
         res.status(201).json({ message: 'User registered', userId: result.insertId });
     } catch (err) {
@@ -58,8 +72,8 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
     const [users] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
     const user = users[0];
     if (user && await bcrypt.compare(password, user.password)) {
-        const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, user: { id: user.id, username: user.username, gold: user.gold, wins: user.wins, losses: user.losses } });
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+        res.json({ token, user: { id: user.id, username: user.username, gold: user.gold, wins: user.wins, losses: user.losses, role: user.role } });
     } else {
         res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -68,13 +82,20 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
 // --- Unit Routes ---
 app.get('/api/units', asyncHandler(async (req, res) => {
     const [units] = await pool.query('SELECT * FROM units');
-    // Format to match the client-side expectations if necessary, or just send as is
     res.json(units);
+}));
+
+app.post('/api/admin/units/update', authenticate, isAdmin, asyncHandler(async (req, res) => {
+    const { id, stats } = req.body;
+    const fields = Object.keys(stats).map(key => `\`${key}\` = ?`).join(', ');
+    const values = [...Object.values(stats), id];
+    await pool.query(`UPDATE units SET ${fields} WHERE id = ?`, values);
+    res.json({ message: 'Unit updated' });
 }));
 
 // --- User Routes ---
 app.get('/api/user/profile', authenticate, asyncHandler(async (req, res) => {
-    const [users] = await pool.query('SELECT id, username, gold, wins, losses FROM users WHERE id = ?', [req.user.id]);
+    const [users] = await pool.query('SELECT id, username, gold, wins, losses, role FROM users WHERE id = ?', [req.user.id]);
     res.json(users[0]);
 }));
 
@@ -129,9 +150,16 @@ app.post('/api/ai/strategy', asyncHandler(async (req, res) => {
     const model = config?.model || (providerName === 'openai' ? 'o4-mini' : 'deepseek-v4-flash');
 
     // Fetch units from DB to provide to AI
-    const [dbUnits] = await pool.query('SELECT name, cost, role, hp, special FROM units');
+    const [dbUnits] = await pool.query('SELECT name, cost, role, hp, move_speed, atk_speed, special FROM units');
     const unitMarket = dbUnits.reduce((acc, unit) => {
-        acc[unit.name] = { cost: unit.cost, role: unit.role, hp: unit.hp, special: unit.special };
+        acc[unit.name] = { 
+            cost: unit.cost, 
+            role: unit.role, 
+            hp: unit.hp, 
+            move_speed: unit.move_speed,
+            atk_speed: unit.atk_speed,
+            special: unit.special 
+        };
         return acc;
     }, {});
 
