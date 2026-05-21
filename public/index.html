@@ -11,6 +11,26 @@
     <div class="header">
         <h1>Age of Agents</h1>
         <div class="subtitle">Multi-Agent Strategic Arena</div>
+        <div id="user-status" style="position: absolute; right: 20px; top: 20px; font-family: var(--font-data); font-size: 12px; color: var(--accent);">
+            <!-- User info here -->
+        </div>
+    </div>
+
+    <!-- AUTH OVERLAY -->
+    <div id="auth-overlay">
+        <div class="setup-box panel" style="max-width: 400px;">
+            <div class="setup-title" id="auth-title">Commander Login</div>
+            <div id="auth-form">
+                <label>Username</label>
+                <input type="text" id="username" placeholder="Enter username">
+                <label>Password</label>
+                <input type="password" id="password" placeholder="Enter password">
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="buy-btn" id="login-btn" onclick="Auth.login()">Login</button>
+                    <button class="buy-btn" id="register-btn" onclick="Auth.register()" style="background: var(--bg-card);">Register</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="dashboard" id="dashboard"></div>
@@ -32,6 +52,18 @@
         <div class="log-panel">
             <div class="log-title">Tactical Feed</div>
             <div id="combat-log"></div>
+        </div>
+    </div>
+
+    <!-- RESUME DIALOG -->
+    <div id="resume-overlay" style="display:none;">
+        <div class="setup-box panel" style="max-width: 400px;">
+            <div class="setup-title">Active Session Found</div>
+            <p style="text-align:center; color:var(--text-muted); margin-bottom:30px;">You have a game in progress. Would you like to continue or start over?</p>
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button class="buy-btn" onclick="Game.resume()">Continue</button>
+                <button class="buy-btn" onclick="Game.startFresh()" style="background: var(--bg-card);">New Game</button>
+            </div>
         </div>
     </div>
 

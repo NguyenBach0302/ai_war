@@ -377,7 +377,29 @@ canvas { max-width: 100%; height: auto; display: block; image-rendering: auto; }
 .dmg-text { position: absolute; pointer-events: none; animation: floatUp 0.8s forwards; font-weight: 600; font-size: 12px; font-family: var(--font-data); }
 @keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-40px); opacity: 0; } }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+#auth-overlay, #resume-overlay {
+  position: fixed; inset: 0; background: var(--bg-deep); z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+}
+
+#auth-form label {
+  display: block; font-family: var(--font-data); font-size: 11px;
+  color: var(--text-muted); margin-bottom: 8px; margin-top: 16px;
+  text-transform: uppercase;
+}
+
+#auth-form input {
+  width: 100%; background: var(--bg-deep); border: 1px solid var(--border);
+  color: var(--text-main); padding: 12px; font-family: var(--font-ui);
+  border-radius: 4px; outline: none; transition: border-color 0.2s;
+}
+
+#auth-form input:focus { border-color: var(--primary); }
+
+#user-status { display: flex; align-items: center; gap: 15px; }
+.status-item { border-left: 1px solid var(--border); padding-left: 15px; }
+
+/* ... existing scrollbar styles ... */
 ::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb { background: var(--bg-panel); border-radius: 3px; border: 1px solid var(--bg-surface); }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
