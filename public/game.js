@@ -497,6 +497,7 @@ const Game = (function() {
     let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0, onlinePublishInFlight = false;
     let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0, onlineConfirmedFrame = 0;
     let processedOnlineActionIds = new Set();
+    let processedVisualEventIds = new Set();
     let pendingOnlineEvents = [];
     let onlineServerClockOffsetMs = 0;
     const MAX_PARTICLES = 150;
@@ -1456,13 +1457,11 @@ const Game = (function() {
             meta: { ...CLASSES[u.type] },
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
-        vfx = [];
-        floatingTexts = [];
         if (Array.isArray(payload.events)) {
             payload.events.forEach(event => {
                 if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
                 if (event.type === 'unit-spawn') log(`${players[event.owner]?.name || 'Player'} deployed ${event.unitType}`, players[event.owner]?.color?.main || '#fff');
-                if (event.type === 'projectile') spawnClientProjectile(event);
+                if (event.type === 'projectile' || event.type === 'vfx') applyServerVisual(event);
             });
         }
         const activePlayers = players.filter(p => !p.eliminated);
@@ -1502,10 +1501,13 @@ const Game = (function() {
 
     function applyServerVisual(event) {
         if (!event || !onlineMode) return;
+        if (event.id && processedVisualEventIds.has(event.id)) return;
+        if (event.id) processedVisualEventIds.add(event.id);
         if (event.type === 'projectile') spawnClientProjectile(event);
+        if (event.type === 'vfx') spawnVFX(Number(event.x || 0), Number(event.y || 0), event.text || '', event.color || '#fff');
     }
 
-    function updateClientProjectiles() {
+    function updateClientVisuals() {
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const pr = projectiles[i];
             const d = dist(pr, { x: pr.tx, y: pr.ty });
@@ -1518,6 +1520,12 @@ const Game = (function() {
             pr.x += Math.cos(angle) * (pr.speed || 8);
             pr.y += Math.sin(angle) * (pr.speed || 8);
             pr.life--;
+        }
+        for (let i = vfx.length - 1; i >= 0; i--) {
+            const fx = vfx[i];
+            fx.life--;
+            fx.radius += fx.growth;
+            if (fx.life <= 0) vfx.splice(i, 1);
         }
     }
 
@@ -2494,7 +2502,7 @@ const Game = (function() {
 
         if (onlineMode) {
             if (!onlineAuthoritative) {
-                updateClientProjectiles();
+                updateClientVisuals();
                 draw();
                 if (running) requestAnimationFrame(loop);
                 return;
@@ -2696,6 +2704,7 @@ const Game = (function() {
         unitsPending = [];
         onlineActions = [];
         processedOnlineActionIds = new Set();
+        processedVisualEventIds = new Set();
         
         const dash = document.getElementById('dashboard'); 
         dash.innerHTML = '';

@@ -166,6 +166,59 @@ function getServerDamage(attacker, target, baseDmg, type) {
     return baseDmg * (1 - reduction);
 }
 
+function calculateServerDamage(sim, attacker, target, baseDmg, type) {
+    const dodge = target.meta ? Number(target.meta.dodge || 0) : 0;
+    if (dodge > 0 && serverRng(sim) < dodge) {
+        return { amount: 0, dodged: true, isCrit: false };
+    }
+    let amount = baseDmg;
+    const attackerMeta = {
+        ...(attacker.meta || {}),
+        crit_chance: Number(attacker.meta?.crit_chance || 0) + (attacker.critBoostUntil && attacker.critBoostUntil > sim.frame ? 0.5 : 0),
+        phys_pen: Number(attacker.meta?.phys_pen || 0) + (attacker.penBoostUntil && attacker.penBoostUntil > sim.frame ? 0.15 : 0)
+    };
+    const effectiveAttacker = { ...attacker, meta: attackerMeta };
+    const critChance = Number(attackerMeta.crit_chance || 0);
+    const isCrit = critChance > 0 && serverRng(sim) < critChance;
+    if (isCrit) amount *= 2;
+    amount = getServerDamage(effectiveAttacker, target, amount, type);
+    return { amount, dodged: false, isCrit };
+}
+
+function pushServerEvent(match, event) {
+    const sim = match.sim;
+    const payload = { frame: sim?.frame || 0, ...event };
+    if (sim) sim.eventHistory.push(payload);
+    match.eventHistory = [...(match.eventHistory || []), payload];
+    return payload;
+}
+
+function applyServerDamage(match, attacker, target, baseDmg, type, skill = null) {
+    const sim = match.sim;
+    const result = calculateServerDamage(sim, attacker, target, baseDmg, type);
+    if (!result.dodged) {
+        target.hp -= result.amount;
+        if (!target.base) target.lastAttacker = attacker.owner;
+        const lifesteal = Number(attacker.meta?.lifesteal || 0);
+        if (lifesteal > 0 && result.amount > 0) {
+            attacker.hp = Math.min(attacker.maxHp, attacker.hp + result.amount * lifesteal);
+        }
+    }
+    pushServerEvent(match, {
+        type: 'damage',
+        attackerId: attacker.id,
+        attackerType: attacker.type,
+        targetId: target.id ?? `base-${target.id}`,
+        targetType: target.type || 'Base',
+        amount: result.amount,
+        damageType: type,
+        dodged: result.dodged,
+        crit: result.isCrit,
+        skill
+    });
+    return result;
+}
+
 function createServerSim(match) {
     const unitRows = Array.isArray(match.units) ? match.units : [];
     const classes = new Map(unitRows.map(unit => [unit.name, unit]));
@@ -173,6 +226,7 @@ function createServerSim(match) {
         frame: 0,
         seq: 0,
         nextUnitId: 1,
+        rngState: Number(match.seed || 1) >>> 0 || 1,
         commands: [],
         classes,
         players: match.players.map((player, idx) => ({
@@ -190,6 +244,11 @@ function createServerSim(match) {
         pendingVisualEvents: [],
         eventHistory: []
     };
+}
+
+function serverRng(sim) {
+    sim.rngState = (sim.rngState * 1664525 + 1013904223) >>> 0;
+    return sim.rngState / 0x100000000;
 }
 
 function serializeServerSim(match) {
@@ -394,17 +453,28 @@ function addServerProjectileVisual(match, unit, target, skill = null) {
     sendMatchEvent(match, 'match-visual', event);
 }
 
+function addServerVfxVisual(match, x, y, text, color = '#fff') {
+    const sim = match.sim;
+    if (!sim) return;
+    const event = {
+        type: 'vfx',
+        id: `vfx${sim.frame}_${sim.pendingVisualEvents.length}_${text}`,
+        frame: sim.frame,
+        x,
+        y,
+        text,
+        color
+    };
+    sim.pendingVisualEvents.push(event);
+    sendMatchEvent(match, 'match-visual', event);
+}
+
 function applyServerAreaDamage(match, unit, center, radius, amount, damageType, label) {
     const sim = match.sim;
     sim.units.forEach(target => {
         if (target.owner === unit.owner || target.hp <= 0) return;
         if (serverDist(target, center) > radius) return;
-        const damage = getServerDamage(unit, target, amount, damageType);
-        target.hp -= damage;
-        target.lastAttacker = unit.owner;
-        const event = { type: 'damage', frame: sim.frame, attackerId: unit.id, attackerType: unit.type, targetId: target.id, targetType: target.type, amount: damage, damageType, skill: label };
-        sim.eventHistory.push(event);
-        match.eventHistory = [...(match.eventHistory || []), event];
+        applyServerDamage(match, unit, target, amount, damageType, label);
     });
 }
 
@@ -425,12 +495,9 @@ function tryServerSkill(match, unit, target) {
             .slice(0, 3)
             .map(entry => entry.unit);
         targets.forEach(enemy => {
-            enemy.hp -= 20;
-            enemy.lastAttacker = unit.owner;
             enemy.frozenUntil = Math.max(enemy.frozenUntil || 0, sim.frame + 120);
-            const event = { type: 'damage', frame: sim.frame, attackerId: unit.id, attackerType: unit.type, targetId: enemy.id, targetType: enemy.type, amount: 20, damageType: 'true', skill: 'frost' };
-            sim.eventHistory.push(event);
-            match.eventHistory = [...(match.eventHistory || []), event];
+            applyServerDamage(match, unit, enemy, 20, 'true', 'frost');
+            addServerVfxVisual(match, enemy.x, enemy.y - 20, 'FROST', '#7dd3fc');
         });
         return true;
     }
@@ -446,11 +513,13 @@ function tryServerSkill(match, unit, target) {
         }
     }
 
-    if (lower.includes('mage') && unit.mana >= 30) {
+    if (lower.includes('mage') && unit.mana >= 30 && target) {
         unit.mana -= 30;
         unit.skillCooldown = 90;
         setServerAnim(unit, 'attack_2', sim.frame);
-        applyServerAreaDamage(match, unit, unit, 60, 45, 'magic', 'fire');
+        addServerProjectileVisual(match, unit, target, 'fire');
+        applyServerAreaDamage(match, unit, getServerTargetPoint(target), 70, 55, 'magic', 'fire');
+        addServerVfxVisual(match, getServerTargetPoint(target).x, getServerTargetPoint(target).y - 18, 'FIRE', '#f97316');
         return true;
     }
 
@@ -459,14 +528,17 @@ function tryServerSkill(match, unit, target) {
         unit.skillCooldown = 300;
         unit.hp = Math.min(unit.maxHp * 1.4, unit.hp + unit.maxHp * 0.35);
         setServerAnim(unit, 'protect', sim.frame);
+        addServerVfxVisual(match, unit.x, unit.y - 24, 'PROTECT', '#94a3b8');
         return true;
     }
 
-    if (lower.includes('chilygirl') && unit.mana >= 70) {
+    if (lower.includes('chilygirl') && unit.mana >= 70 && target) {
         unit.mana -= 70;
         unit.skillCooldown = 240;
-        unit.berserkUntil = sim.frame + 180;
-        setServerAnim(unit, 'protect', sim.frame);
+        setServerAnim(unit, 'attack', sim.frame);
+        addServerProjectileVisual(match, unit, target, 'chily_big');
+        applyServerAreaDamage(match, unit, getServerTargetPoint(target), 60, Number(unit.meta.dmg || 1) * 3, 'true', 'big_chili');
+        addServerVfxVisual(match, getServerTargetPoint(target).x, getServerTargetPoint(target).y - 18, 'CHILI', '#fb7185');
         return true;
     }
 
@@ -477,6 +549,33 @@ function tryServerSkill(match, unit, target) {
         unit.x = target.x + side * 28;
         unit.y = target.y;
         setServerAnim(unit, 'attack_3', sim.frame);
+        unit.critBoostUntil = sim.frame + 180;
+        addServerVfxVisual(match, unit.x, unit.y - 20, 'DASH', '#f43f5e');
+        return true;
+    }
+
+    if (lower.includes('healer') && unit.mana >= 30) {
+        const ally = sim.units
+            .filter(other => other.owner === unit.owner && other.id !== unit.id && other.hp < other.maxHp)
+            .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+        if (ally) {
+            unit.mana -= 30;
+            unit.skillCooldown = 90;
+            setServerAnim(unit, 'attack_3', sim.frame);
+            addServerProjectileVisual(match, unit, ally, 'heal');
+            const amount = Math.max(35, Number(unit.meta.dmg || 1) * 8);
+            ally.hp = Math.min(ally.maxHp, ally.hp + amount);
+            addServerVfxVisual(match, ally.x, ally.y - 18, `+${Math.floor(amount)}`, '#22c55e');
+            return true;
+        }
+    }
+
+    if (lower.includes('bowman') && unit.mana >= 30) {
+        unit.mana -= 30;
+        unit.skillCooldown = 180;
+        unit.penBoostUntil = sim.frame + 180;
+        setServerAnim(unit, 'attack_3', sim.frame);
+        addServerVfxVisual(match, unit.x, unit.y - 20, 'FOCUS', '#fbbf24');
         return true;
     }
 
@@ -530,22 +629,8 @@ function updateServerSim(match) {
                 unit.cooldown = Math.max(1, Math.floor(MATCH_FPS / atkSpeed));
                 setServerAnim(unit, getServerAttackAnim(unit), sim.frame);
                 const berserk = unit.berserkUntil && unit.berserkUntil > sim.frame ? 1.6 : 1;
-                const amount = getServerDamage(unit, target, Number(unit.meta.dmg || 1) * berserk, unit.meta.dmg_type || 'physical');
-                target.hp -= amount;
                 if (range >= 35) addServerProjectileVisual(match, unit, target);
-                if (!target.base) target.lastAttacker = unit.owner;
-                const event = {
-                    type: 'damage',
-                    frame: sim.frame,
-                    attackerId: unit.id,
-                    attackerType: unit.type,
-                    targetId: target.id ?? `base-${target.id}`,
-                    targetType: target.type || 'Base',
-                    amount,
-                    damageType: unit.meta.dmg_type || 'physical'
-                };
-                sim.eventHistory.push(event);
-                match.eventHistory = [...(match.eventHistory || []), event];
+                applyServerDamage(match, unit, target, Number(unit.meta.dmg || 1) * berserk, unit.meta.dmg_type || 'physical');
             }
         } else {
             unit.state = 'march';
