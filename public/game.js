@@ -433,6 +433,9 @@ const Game = (function() {
     const MAX_UNITS_PER_PLAYER = 50;
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
+    const MELEE_BASE_INTERCEPT_DISTANCE = 220;
+    const MELEE_BASE_INTERCEPT_BACKTRACK = 45;
+    const MELEE_BASE_INTERCEPT_LANE_WIDTH = 90;
     const MIN_CAMERA_ZOOM = 0.55;
     const MAX_CAMERA_ZOOM = 1.8;
     const CAMERA_ZOOM_STEP = 0.1;
@@ -487,6 +490,34 @@ const Game = (function() {
         const dir = getForwardDir(owner);
         return (getTargetX(candidate) - getTargetX(front)) * dir > 18;
     };
+    const findMeleeBaseInterceptTarget = (u, baseTarget) => {
+        const dir = getForwardDir(u.owner);
+        const baseAhead = (baseTarget.base.x - u.x) * dir - baseTarget.base.r;
+        const laneY = u.laneY || LANE_Y;
+        const intercepts = units
+            .filter(e => {
+                if (e.owner === u.owner || e.hp <= 0 || e.untargetableTimer > 0) return false;
+                const ahead = (e.x - u.x) * dir;
+                const betweenUnitAndBase = ahead >= -MELEE_BASE_INTERCEPT_BACKTRACK && ahead <= Math.max(baseAhead, MELEE_BASE_INTERCEPT_DISTANCE);
+                const closeEnough = dist(u, e) <= MELEE_BASE_INTERCEPT_DISTANCE;
+                const inLane = Math.abs(e.y - u.y) <= MELEE_BASE_INTERCEPT_LANE_WIDTH || Math.abs(e.y - laneY) <= MELEE_BASE_INTERCEPT_LANE_WIDTH;
+                return inLane && (betweenUnitAndBase || closeEnough);
+            })
+            .map(e => ({ target: e, distance: getTargetDistance(u, e), pressure: targetPressure(e, u.owner) }))
+            .sort((a, b) => {
+                const aOpen = a.pressure < MELEE_CROWD_LIMIT ? 0 : 1;
+                const bOpen = b.pressure < MELEE_CROWD_LIMIT ? 0 : 1;
+                return aOpen - bOpen || a.distance - b.distance;
+            });
+        return intercepts[0]?.target || null;
+    };
+    const getBaseTargetByKey = (targetKey, owner) => {
+        const baseMatch = String(targetKey || '').match(/^base-(\d+)$/);
+        if (!baseMatch) return null;
+        const baseOwner = Number(baseMatch[1]);
+        const playerTarget = players.find(p => p.id === baseOwner && p.id !== owner && !p.eliminated && p.hp > 0);
+        return playerTarget || null;
+    };
     const getLockedCombatTarget = (u) => {
         if (!u.currentTargetKey) return null;
         const unitTarget = units.find(e => (
@@ -497,19 +528,32 @@ const Game = (function() {
         ));
         if (unitTarget) return unitTarget;
 
-        const baseMatch = String(u.currentTargetKey).match(/^base-(\d+)$/);
-        if (!baseMatch) return null;
-        const baseOwner = Number(baseMatch[1]);
-        const playerTarget = players.find(p => p.id === baseOwner && p.id !== u.owner && !p.eliminated && p.hp > 0);
-        return playerTarget || null;
+        return getBaseTargetByKey(u.currentTargetKey, u.owner);
     };
     const pickCombatTarget = (u) => {
+        if (isMeleeUnit(u)) {
+            const baseFocusTarget = getBaseTargetByKey(u.baseFocusTargetKey, u.owner);
+            if (baseFocusTarget) {
+                const interceptTarget = findMeleeBaseInterceptTarget(u, baseFocusTarget);
+                if (interceptTarget) return interceptTarget;
+                return baseFocusTarget;
+            }
+            u.baseFocusTargetKey = null;
+        }
+
         const lockedTarget = isMeleeUnit(u) ? getLockedCombatTarget(u) : null;
-        if (lockedTarget) return lockedTarget;
+        if (lockedTarget) {
+            if (lockedTarget.base) {
+                u.baseFocusTargetKey = getTargetKey(lockedTarget);
+                const interceptTarget = findMeleeBaseInterceptTarget(u, lockedTarget);
+                if (interceptTarget) return interceptTarget;
+            }
+            return lockedTarget;
+        }
 
         const candidates = [];
         units.forEach(e => {
-            if (e.owner !== u.owner && e.untargetableTimer <= 0) candidates.push({ target: e, distance: getTargetDistance(u, e) });
+            if (e.owner !== u.owner && e.hp > 0 && e.untargetableTimer <= 0) candidates.push({ target: e, distance: getTargetDistance(u, e) });
         });
         players.forEach(p => {
             if (!p.eliminated && p.id !== u.owner) candidates.push({ target: p, distance: getTargetDistance(u, p) });
@@ -518,6 +562,12 @@ const Game = (function() {
 
         candidates.sort((a, b) => a.distance - b.distance);
         const nearest = candidates[0];
+        if (isMeleeUnit(u) && nearest.target.base) {
+            u.baseFocusTargetKey = getTargetKey(nearest.target);
+            const interceptTarget = findMeleeBaseInterceptTarget(u, nearest.target);
+            if (interceptTarget) return interceptTarget;
+            return nearest.target;
+        }
         if (!isMeleeUnit(u) || nearest.target.base || targetPressure(nearest.target, u.owner) < MELEE_CROWD_LIMIT) {
             return nearest.target;
         }
