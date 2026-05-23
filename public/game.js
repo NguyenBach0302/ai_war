@@ -946,6 +946,70 @@ const Game = (function() {
         return maxHp;
     }
 
+    function getAffordableUnits(gold) {
+        return Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0 && CLASSES[k].cost <= gold);
+    }
+
+    function pickExistingUnit(names, affordable) {
+        return names.find(name => affordable.includes(name)) || null;
+    }
+
+    function chooseHellBotUnit(pIdx) {
+        const p = players[pIdx];
+        const enemyIds = players.filter(ep => !ep.eliminated && ep.id !== pIdx).map(ep => ep.id);
+        const ownUnits = units.filter(u => u.owner === pIdx);
+        const enemyUnits = units.filter(u => enemyIds.includes(u.owner));
+        const affordable = getAffordableUnits(p.gold);
+        if (!affordable.length) return null;
+
+        const ownCount = ownUnits.length;
+        const enemyCount = enemyUnits.length;
+        const ownLowHp = ownUnits.filter(u => u.hp / Math.max(1, getEffectiveMaxHp(u)) < 0.45).length;
+        const enemyAssassins = enemyUnits.filter(u => String(u.type).toLowerCase().includes('assassin'));
+        const enemyRanged = enemyUnits.filter(u => (u.meta?.range || 0) >= 130).length;
+        const enemyTank = enemyUnits.filter(u => (u.meta?.hp || 0) >= 150 || String(u.type).includes('Guard')).length;
+        const enemyMelee = enemyUnits.filter(u => (u.meta?.range || 0) < 80).length;
+        const basePressure = enemyUnits.some(u => dist(u, p.base) < 360);
+        const assassinPressure = enemyAssassins.some(u => dist(u, p.base) < 520);
+        const lowBase = p.hp / p.maxHp < 0.45;
+        const can = names => pickExistingUnit(names, affordable);
+
+        if (enemyAssassins.length > 0) {
+            return can(assassinPressure ? ['Iceman', 'Guard', 'Healer', 'Mage'] : ['Iceman', 'Bowman', 'Guard']);
+        }
+        if ((lowBase || basePressure) && ownCount < enemyCount + 2) {
+            return can(['Guard', 'Healer', 'Iceman', 'ChilyGirl']);
+        }
+        if (ownLowHp >= 2) return can(['Healer', 'Guard', 'Iceman']);
+        if (enemyCount >= ownCount + 4) return can(['Mage', 'Gunman', 'ChilyGirl', 'Iceman']);
+        if (enemyRanged >= 2) return can(['Assassin', 'Sniper', 'Gunman', 'Iceman']);
+        if (enemyTank >= 2) return can(['Mage', 'ChilyGirl', 'Sniper', 'Gunman']);
+        if (enemyMelee >= 3) return can(['Iceman', 'Mage', 'Bowman', 'Gunman']);
+        if (ownCount < 2) return can(['Guard', 'Gunman', 'Iceman', 'Bowman']);
+        if (p.gold >= 110) return can(['Sniper', 'Mage', 'Gunman', 'ChilyGirl', 'Iceman']);
+        return can(['Gunman', 'Iceman', 'Bowman', 'Assassin', 'Guard']) || affordable[Math.floor(rng() * affordable.length)];
+    }
+
+    function processHellBot(pIdx) {
+        const p = players[pIdx];
+        if (!p || p.eliminated) return;
+
+        const enemyIds = players.filter(ep => !ep.eliminated && ep.id !== pIdx).map(ep => ep.id);
+        const enemyUnits = units.filter(u => enemyIds.includes(u.owner));
+        const ownUnits = units.filter(u => u.owner === pIdx);
+        const pressureBonus = enemyUnits.some(u => dist(u, p.base) < 340) ? 22 : 0;
+        const comebackBonus = p.hp < p.maxHp * 0.55 ? 18 : 0;
+        const tempoBonus = ownUnits.length <= enemyUnits.length ? 14 : 8;
+        p.gold += tempoBonus + pressureBonus + comebackBonus;
+
+        const maxBuys = p.gold > 190 || enemyUnits.length > ownUnits.length + 3 ? 3 : 2;
+        for (let i = 0; i < maxBuys; i++) {
+            const choice = chooseHellBotUnit(pIdx);
+            if (!choice) break;
+            spawnUnit(pIdx, choice);
+        }
+    }
+
     async function processAI(pIdx) {
         if (aiProcessFlags[pIdx]) return;
         aiProcessFlags[pIdx] = true;
@@ -956,8 +1020,10 @@ const Game = (function() {
         const provider = configDropdown ? configDropdown.value : 'random';
         
         try {
-            if (provider === 'random') {
-                const affordable = Object.keys(CLASSES).filter(k => CLASSES[k].cost <= p.gold);
+            if (provider === 'hell') {
+                processHellBot(pIdx);
+            } else if (provider === 'random') {
+                const affordable = getAffordableUnits(p.gold);
                 if (affordable.length > 0 && rng() > 0.5) spawnUnit(pIdx, affordable[Math.floor(rng() * affordable.length)]);
             } else {
                 const res = await fetch('/api/ai/strategy', {
@@ -975,7 +1041,7 @@ const Game = (function() {
             console.error(`AI Error for ${p.name}:`, e);
         }
         
-        setTimeout(() => { aiProcessFlags[pIdx] = false; }, 3000);
+        setTimeout(() => { aiProcessFlags[pIdx] = false; }, provider === 'hell' ? 900 : 3000);
     }
 
     async function fetchUnits() {
@@ -2143,8 +2209,9 @@ const Game = (function() {
                         <span class="agent-badge">${isHuman ? 'You' : 'AI'}</span>
                     </div>
                     <div class="auth-input-group">
-                        <label>AI Strategy</label>
+                        <label>${isHuman ? 'Control Mode' : 'AI Strategy'}</label>
                         <select id="ai-provider-${i}" ${isHuman ? 'disabled' : ''}>
+                            ${isHuman ? '<option value="human" selected>Human Command</option>' : '<option value="hell" selected>Hell Bot (Local)</option>'}
                             <option value="deepseek">DeepSeek-V4</option>
                             <option value="openai">GPT-4o Mini</option>
                             <option value="random">Random Chaos</option>
@@ -2297,8 +2364,10 @@ const Game = (function() {
             const isHuman = onlineMode ? true : i === 0;
             const savedPlayer = state?.players?.[i];
             const onlinePlayerName = options.players?.[i]?.username;
+            const providerEl = document.getElementById(`ai-provider-${i}`);
+            const localBotName = !isHuman && providerEl?.value === 'hell' ? 'Hell Bot' : 'Enemy Agent';
             if (savedPlayer) players.push({ ...savedPlayer, id: i, color: COLORS[i], isHuman, base: getBaseForPlayer(i) });
-            else players.push({ id: i, name: onlinePlayerName || (isHuman ? Auth.getUser().username : 'Enemy Agent'), isHuman, color: COLORS[i], gold: 150, hp: 2500, maxHp: 2500, base: getBaseForPlayer(i), eliminated: false });
+            else players.push({ id: i, name: onlinePlayerName || (isHuman ? Auth.getUser().username : localBotName), isHuman, color: COLORS[i], gold: 150, hp: 2500, maxHp: 2500, base: getBaseForPlayer(i), eliminated: false });
             dash.innerHTML += `<div class="player-card" style="border-top:2px solid ${COLORS[i].main}"><div class="card-header"><span class="player-name">${escapeHtml(players[i].name)}</span><span class="resource-count" id="gold-${i}">$ ${Math.floor(players[i].gold)}</span></div><div class="hp-bg"><div class="hp-bar" id="hp-${i}" style="width:${(players[i].hp/players[i].maxHp)*100}%"></div></div></div>`;
         }
 
