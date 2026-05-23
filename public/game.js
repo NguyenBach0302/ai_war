@@ -197,8 +197,10 @@ const UI = (function() {
 
 const Online = (function() {
     let source = null;
+    let socket = null;
     let currentMatchId = null;
     let activeStartedMatchId = null;
+    let commandSeq = 1;
 
     function setStatus(message) {
         const el = document.getElementById('online-status');
@@ -208,14 +210,13 @@ const Online = (function() {
     function closeStream() {
         if (source) source.close();
         source = null;
+        if (socket) socket.close();
+        socket = null;
     }
 
-    function openStream(matchId) {
-        closeStream();
-        const token = encodeURIComponent(Auth.getToken());
-        source = new EventSource(`/api/match/stream?matchId=${encodeURIComponent(matchId)}&token=${token}`);
-        source.addEventListener('match-start', event => {
-            const data = JSON.parse(event.data);
+    function handleRealtimeEvent(eventName, payload) {
+        if (eventName === 'match-start') {
+            const data = payload;
             currentMatchId = data.matchId;
             if (activeStartedMatchId === data.matchId) return;
             activeStartedMatchId = data.matchId;
@@ -230,24 +231,61 @@ const Online = (function() {
                 confirmedFrame: data.confirmedFrame,
                 units: data.units
             });
-        });
-        source.addEventListener('match-action', event => {
-            Game.applyOnlineAction(JSON.parse(event.data));
-        });
-        source.addEventListener('match-sync', event => {
-            Game.syncOnlineClock(JSON.parse(event.data));
-        });
-        source.addEventListener('match-state', event => {
-            Game.applyAuthoritativeState(JSON.parse(event.data));
-        });
-        source.addEventListener('player-disconnected', () => {
+            return;
+        }
+        if (eventName === 'match-action') {
+            Game.applyOnlineAction(payload);
+            return;
+        }
+        if (eventName === 'match-sync') {
+            Game.syncOnlineClock(payload);
+            return;
+        }
+        if (eventName === 'match-state') {
+            Game.applyAuthoritativeState(payload);
+            return;
+        }
+        if (eventName === 'command-result') {
+            if (payload?.state) Game.applyAuthoritativeState(payload.state);
+            if (payload?.ok === false) setStatus(payload.message || 'Command rejected.');
+            return;
+        }
+        if (eventName === 'player-disconnected') {
             setStatus('Opponent disconnected. Match can continue, but they may stop responding.');
-        });
-        source.addEventListener('match-ended', () => {
+            return;
+        }
+        if (eventName === 'match-ended') {
             closeStream();
             setStatus('Match ended.');
-        });
-        source.onerror = () => setStatus('Online connection interrupted. Reconnecting...');
+        }
+    }
+
+    function openStream(matchId) {
+        closeStream();
+        const token = encodeURIComponent(Auth.getToken());
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(`${protocol}//${location.host}/api/match/ws?matchId=${encodeURIComponent(matchId)}&token=${token}`);
+        socket.onopen = () => setStatus('Online socket connected.');
+        socket.onmessage = event => {
+            try {
+                const data = JSON.parse(event.data);
+                handleRealtimeEvent(data.event, data.payload);
+            } catch (err) {
+                console.warn('Invalid socket message', err);
+            }
+        };
+        socket.onerror = () => setStatus('Online socket interrupted. Falling back...');
+        socket.onclose = () => {
+            if (!currentMatchId) return;
+            source = new EventSource(`/api/match/stream?matchId=${encodeURIComponent(matchId)}&token=${token}`);
+            source.addEventListener('match-start', event => handleRealtimeEvent('match-start', JSON.parse(event.data)));
+            source.addEventListener('match-action', event => handleRealtimeEvent('match-action', JSON.parse(event.data)));
+            source.addEventListener('match-sync', event => handleRealtimeEvent('match-sync', JSON.parse(event.data)));
+            source.addEventListener('match-state', event => handleRealtimeEvent('match-state', JSON.parse(event.data)));
+            source.addEventListener('player-disconnected', event => handleRealtimeEvent('player-disconnected', JSON.parse(event.data || '{}')));
+            source.addEventListener('match-ended', event => handleRealtimeEvent('match-ended', JSON.parse(event.data || '{}')));
+            source.onerror = () => setStatus('Online connection interrupted. Reconnecting...');
+        };
     }
 
     async function findMatch() {
@@ -274,6 +312,10 @@ const Online = (function() {
     async function sendBuy(unitType) {
         if (!currentMatchId) return;
         Game.previewOnlineBuy(unitType);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'buy', unitType, requestId: commandSeq++ }));
+            return;
+        }
         const res = await fetch('/api/match/action', {
             method: 'POST',
             headers: {

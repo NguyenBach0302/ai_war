@@ -5,6 +5,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
 const path = require('path');
+const http = require('http');
+const { WebSocketServer } = require('ws');
 const pool = require('./db');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
@@ -12,6 +14,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/api/match/ws' });
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const MATCH_START_DELAY_MS = 3000;
 const MATCH_TTL_MS = 1000 * 60 * 60;
@@ -109,6 +113,10 @@ function makeMatchId() {
 function sendMatchEvent(match, event, payload) {
     const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
     match.clients.forEach(client => client.write(data));
+    const wsData = JSON.stringify({ event, payload });
+    (match.wsClients || new Map()).forEach(socket => {
+        if (socket.readyState === socket.OPEN) socket.send(wsData);
+    });
 }
 
 function getMatchFrame(match) {
@@ -122,8 +130,9 @@ function getConfirmedFrame(match) {
 
 function sendMatchEventToPlayer(match, userId, event, payload) {
     const client = match.clients.get(userId);
-    if (!client) return;
-    client.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    if (client) client.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+    const socket = match.wsClients?.get(userId);
+    if (socket?.readyState === socket.OPEN) socket.send(JSON.stringify({ event, payload }));
 }
 
 function getServerBaseForPlayer(idx) {
@@ -203,8 +212,8 @@ function serializeServerSim(match) {
                 type: unit.type,
                 hp: unit.hp,
                 maxHp: unit.maxHp,
-                mana: 0,
-                maxMana: Number(unit.meta.mana || 0),
+                mana: unit.mana,
+                maxMana: unit.maxMana,
                 x: unit.x,
                 y: unit.y,
                 laneY: unit.y,
@@ -215,7 +224,9 @@ function serializeServerSim(match) {
                 isPet: false,
                 untargetableTimer: 0,
                 facing: unit.facing,
-                blockTimer: 0
+                blockTimer: 0,
+                animAction: unit.animAction,
+                animStartedAt: unit.animStartedAt
             })),
             projectiles: [],
             vfx: [],
@@ -231,6 +242,46 @@ function broadcastServerFrame(match) {
     match.stateSeq = payload.seq;
     match.stateSnapshot = payload;
     sendMatchEvent(match, 'match-state', payload);
+}
+
+function handleMatchBuy(match, userId, unitType) {
+    if (!match || !match.started || match.ended) {
+        return { ok: false, status: 404, message: 'Match not found' };
+    }
+    const playerIndex = match.players.findIndex(player => player.id === userId);
+    if (playerIndex < 0) return { ok: false, status: 403, message: 'Not in this match' };
+    if (!/^[a-zA-Z0-9 _-]{1,40}$/.test(String(unitType || ''))) {
+        return { ok: false, status: 400, message: 'Invalid unit type' };
+    }
+
+    const serverFrame = match.sim?.frame ?? getMatchFrame(match);
+    const actionId = Number(match.nextActionId || 1);
+    const payload = {
+        actionId,
+        action: 'buy',
+        playerIndex,
+        unitType: String(unitType),
+        actionFrame: serverFrame,
+        serverFrame,
+        sentAt: Date.now()
+    };
+    match.nextActionId = actionId + 1;
+    match.lastActionFrame = serverFrame;
+    match.actionLog = [...(match.actionLog || []), payload].slice(-200);
+
+    let statePayload = null;
+    if (match.sim) {
+        const spawned = spawnServerUnit(match, playerIndex, payload.unitType);
+        if (spawned) {
+            match.sim.seq += 1;
+            statePayload = serializeServerSim(match);
+            match.stateSeq = statePayload.seq;
+            match.stateSnapshot = statePayload;
+            sendMatchEvent(match, 'match-state', statePayload);
+        }
+    }
+    sendMatchEvent(match, 'match-action', payload);
+    return { ok: true, action: payload, state: statePayload };
 }
 
 function spawnServerUnit(match, playerIndex, unitType) {
@@ -251,10 +302,15 @@ function spawnServerUnit(match, playerIndex, unitType) {
         meta,
         hp: Number(meta.hp || 1),
         maxHp: Number(meta.hp || 1),
+        mana: Number(meta.mana || 0) * 0.5,
+        maxMana: Number(meta.mana || 0),
         x: player.base.x + dir * (player.base.r + 14),
         y: SERVER_LANE_Y,
         cooldown: 0,
+        skillCooldown: 0,
         state: 'march',
+        animAction: 'idle',
+        animStartedAt: sim.frame,
         facing: dir > 0 ? 'right' : 'left',
         lastAttacker: null
     };
@@ -278,6 +334,113 @@ function findServerTarget(sim, unit) {
     return enemies[0]?.target || null;
 }
 
+function setServerAnim(unit, action, frame) {
+    if (unit.animAction !== action || frame - Number(unit.animStartedAt || 0) > 24) {
+        unit.animAction = action;
+        unit.animStartedAt = frame;
+    }
+}
+
+function getServerAttackAnim(unit) {
+    const type = String(unit.type || '').toLowerCase();
+    if (type.includes('bowman') || type.includes('sniper')) return 'shot';
+    if (type.includes('gunman') || type.includes('gunner')) return 'shot_1';
+    if (type.includes('mage') || type.includes('iceman')) return 'attack_1';
+    if (type.includes('healer')) return 'attack_1';
+    if (type.includes('guard')) return 'attack_1';
+    if (type.includes('assassin')) return 'attack_1';
+    if (type.includes('chilygirl')) return 'attack';
+    return 'attack';
+}
+
+function applyServerAreaDamage(match, unit, center, radius, amount, damageType, label) {
+    const sim = match.sim;
+    sim.units.forEach(target => {
+        if (target.owner === unit.owner || target.hp <= 0) return;
+        if (serverDist(target, center) > radius) return;
+        const damage = getServerDamage(unit, target, amount, damageType);
+        target.hp -= damage;
+        target.lastAttacker = unit.owner;
+        const event = { type: 'damage', frame: sim.frame, attackerId: unit.id, attackerType: unit.type, targetId: target.id, targetType: target.type, amount: damage, damageType, skill: label };
+        sim.eventHistory.push(event);
+        match.eventHistory = [...(match.eventHistory || []), event];
+    });
+}
+
+function tryServerSkill(match, unit, target) {
+    const sim = match.sim;
+    if (unit.skillCooldown > 0 || unit.maxMana <= 0) return false;
+    const type = String(unit.type || '');
+    const lower = type.toLowerCase();
+
+    if (lower.includes('iceman') && unit.mana >= 60) {
+        unit.mana -= 60;
+        unit.skillCooldown = 120;
+        setServerAnim(unit, 'charge_2', sim.frame);
+        const targets = sim.units
+            .filter(other => other.owner !== unit.owner && other.hp > 0)
+            .map(other => ({ unit: other, distance: serverDist(unit, other) }))
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, 3)
+            .map(entry => entry.unit);
+        targets.forEach(enemy => {
+            enemy.hp -= 20;
+            enemy.lastAttacker = unit.owner;
+            enemy.frozenUntil = Math.max(enemy.frozenUntil || 0, sim.frame + 120);
+            const event = { type: 'damage', frame: sim.frame, attackerId: unit.id, attackerType: unit.type, targetId: enemy.id, targetType: enemy.type, amount: 20, damageType: 'true', skill: 'frost' };
+            sim.eventHistory.push(event);
+            match.eventHistory = [...(match.eventHistory || []), event];
+        });
+        return true;
+    }
+
+    if (lower.includes('gunman') || lower.includes('gunner')) {
+        if (unit.mana >= 30 && target) {
+            unit.mana -= 30;
+            unit.skillCooldown = 120;
+            setServerAnim(unit, 'attack', sim.frame);
+            applyServerAreaDamage(match, unit, getServerTargetPoint(target), 48, Number(unit.meta.dmg || 1) * 1.8, 'physical', 'grenade');
+            return true;
+        }
+    }
+
+    if (lower.includes('mage') && unit.mana >= 30) {
+        unit.mana -= 30;
+        unit.skillCooldown = 90;
+        setServerAnim(unit, 'attack_2', sim.frame);
+        applyServerAreaDamage(match, unit, unit, 60, 45, 'magic', 'fire');
+        return true;
+    }
+
+    if (lower.includes('guard') && unit.mana >= 30) {
+        unit.mana -= 30;
+        unit.skillCooldown = 300;
+        unit.hp = Math.min(unit.maxHp * 1.4, unit.hp + unit.maxHp * 0.35);
+        setServerAnim(unit, 'protect', sim.frame);
+        return true;
+    }
+
+    if (lower.includes('chilygirl') && unit.mana >= 70) {
+        unit.mana -= 70;
+        unit.skillCooldown = 240;
+        unit.berserkUntil = sim.frame + 180;
+        setServerAnim(unit, 'protect', sim.frame);
+        return true;
+    }
+
+    if (lower.includes('assassin') && unit.mana >= 30 && target && !target.base) {
+        unit.mana -= 30;
+        unit.skillCooldown = 120;
+        const side = unit.facing === 'left' ? 1 : -1;
+        unit.x = target.x + side * 28;
+        unit.y = target.y;
+        setServerAnim(unit, 'attack_3', sim.frame);
+        return true;
+    }
+
+    return false;
+}
+
 function updateServerSim(match) {
     const sim = match.sim;
     if (!sim || match.ended) return;
@@ -294,8 +457,22 @@ function updateServerSim(match) {
 
     sim.units.forEach(unit => {
         if (unit.cooldown > 0) unit.cooldown -= 1;
+        if (unit.skillCooldown > 0) unit.skillCooldown -= 1;
+        if (sim.frame % MATCH_FPS === 0) {
+            unit.hp = Math.min(unit.maxHp, unit.hp + 1);
+            unit.mana = Math.min(unit.maxMana, unit.mana + 5);
+        }
+        if (unit.frozenUntil && unit.frozenUntil > sim.frame) {
+            unit.state = 'frozen';
+            setServerAnim(unit, 'idle', sim.frame);
+            return;
+        }
         const target = findServerTarget(sim, unit);
-        if (!target) return;
+        if (!target) {
+            unit.state = 'idle';
+            setServerAnim(unit, 'idle', sim.frame);
+            return;
+        }
         const targetPoint = getServerTargetPoint(target);
         const targetRadius = target.base ? target.base.r : 12;
         const range = Number(unit.meta.range || 25);
@@ -305,10 +482,13 @@ function updateServerSim(match) {
 
         if (distance <= range) {
             unit.state = 'fight';
+            if (tryServerSkill(match, unit, target)) return;
             if (unit.cooldown <= 0) {
                 const atkSpeed = Math.max(0.1, Number(unit.meta.atk_speed || 1));
                 unit.cooldown = Math.max(1, Math.floor(MATCH_FPS / atkSpeed));
-                const amount = getServerDamage(unit, target, Number(unit.meta.dmg || 1), unit.meta.dmg_type || 'physical');
+                setServerAnim(unit, getServerAttackAnim(unit), sim.frame);
+                const berserk = unit.berserkUntil && unit.berserkUntil > sim.frame ? 1.6 : 1;
+                const amount = getServerDamage(unit, target, Number(unit.meta.dmg || 1) * berserk, unit.meta.dmg_type || 'physical');
                 target.hp -= amount;
                 if (!target.base) target.lastAttacker = unit.owner;
                 const event = {
@@ -326,6 +506,7 @@ function updateServerSim(match) {
             }
         } else {
             unit.state = 'march';
+            setServerAnim(unit, 'walk', sim.frame);
             unit.x += dir * Number(unit.meta.move_speed || 1);
         }
     });
@@ -553,6 +734,7 @@ app.post('/api/match/join', authenticate, asyncHandler(async (req, res) => {
         id: makeMatchId(),
         players: [user],
         clients: new Map(),
+        wsClients: new Map(),
         seed: Math.floor(Math.random() * 0xffffffff),
         units: await getUnitSnapshot(),
         startsAt: null,
@@ -625,47 +807,14 @@ app.get('/api/match/stream', (req, res) => {
 
 app.post('/api/match/action', authenticate, (req, res) => {
     const match = matches.get(String(req.body.matchId || ''));
-    if (!match || !match.started || match.ended) {
-        return res.status(404).json({ message: 'Match not found' });
-    }
-
-    const playerIndex = match.players.findIndex(player => player.id === req.user.id);
-    if (playerIndex < 0) return res.status(403).json({ message: 'Not in this match' });
-
     const type = String(req.body.type || '');
     const unitType = String(req.body.unitType || '');
-    if (type !== 'buy' || !/^[a-zA-Z0-9 _-]{1,40}$/.test(unitType)) {
+    if (type !== 'buy') {
         return res.status(400).json({ message: 'Invalid match action' });
     }
-
-    const serverFrame = match.sim?.frame ?? getMatchFrame(match);
-    const actionFrame = serverFrame;
-    match.lastActionFrame = actionFrame;
-    const actionId = Number(match.nextActionId || 1);
-    const payload = {
-        actionId,
-        action: 'buy',
-        playerIndex,
-        unitType,
-        actionFrame,
-        serverFrame,
-        sentAt: Date.now()
-    };
-    match.nextActionId = actionId + 1;
-    match.actionLog = [...(match.actionLog || []), payload].slice(-200);
-    let statePayload = null;
-    if (match.sim) {
-        const spawned = spawnServerUnit(match, playerIndex, unitType);
-        if (spawned) {
-            match.sim.seq += 1;
-            statePayload = serializeServerSim(match);
-            match.stateSeq = statePayload.seq;
-            match.stateSnapshot = statePayload;
-            sendMatchEvent(match, 'match-state', statePayload);
-        }
-    }
-    sendMatchEvent(match, 'match-action', payload);
-    res.json({ ok: true, state: statePayload });
+    const result = handleMatchBuy(match, req.user.id, unitType);
+    if (!result.ok) return res.status(result.status || 400).json({ message: result.message || 'Unable to process action' });
+    res.json(result);
 });
 
 app.post('/api/match/state', authenticate, (req, res) => {
@@ -723,6 +872,55 @@ app.post('/api/match/leave', authenticate, (req, res) => {
         setTimeout(() => removeMatch(match.id), 1000);
     }
     res.json({ ok: true });
+});
+
+wss.on('connection', (socket, req) => {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    let decoded;
+    try {
+        decoded = jwt.verify(String(url.searchParams.get('token') || ''), JWT_SECRET);
+    } catch (err) {
+        socket.close(1008, 'Unauthorized');
+        return;
+    }
+
+    const match = matches.get(String(url.searchParams.get('matchId') || ''));
+    if (!match || !match.players.some(player => player.id === decoded.id)) {
+        socket.close(1008, 'Match not found');
+        return;
+    }
+
+    match.wsClients.set(decoded.id, socket);
+    socket.send(JSON.stringify({ event: 'ws-ready', payload: getMatchPayload(match, decoded.id) }));
+    if (match.started) {
+        socket.send(JSON.stringify({ event: 'match-start', payload: getMatchPayload(match, decoded.id) }));
+        (match.actionLog || []).forEach(action => socket.send(JSON.stringify({ event: 'match-action', payload: action })));
+        if (match.stateSnapshot) socket.send(JSON.stringify({ event: 'match-state', payload: match.stateSnapshot }));
+    }
+
+    socket.on('message', raw => {
+        let message;
+        try {
+            message = JSON.parse(raw.toString());
+        } catch (err) {
+            socket.send(JSON.stringify({ event: 'error', payload: { message: 'Invalid JSON' } }));
+            return;
+        }
+        if (message.type === 'buy') {
+            const result = handleMatchBuy(match, decoded.id, message.unitType);
+            socket.send(JSON.stringify({ event: 'command-result', payload: { requestId: message.requestId || null, ...result } }));
+            return;
+        }
+        if (message.type === 'leave') {
+            match.ended = true;
+            sendMatchEvent(match, 'match-ended', { reason: 'left', userId: decoded.id });
+            setTimeout(() => removeMatch(match.id), 1000);
+        }
+    });
+
+    socket.on('close', () => {
+        if (match.wsClients?.get(decoded.id) === socket) match.wsClients.delete(decoded.id);
+    });
 });
 
 // --- Game Routes ---
@@ -839,7 +1037,7 @@ app.post('/api/ai/strategy', authenticate, asyncHandler(async (req, res) => {
 ensureGameUnits()
     .catch(err => console.error('[Unit Migration] Unable to ensure game units:', err.message))
     .finally(() => {
-        app.listen(PORT, () => {
+        server.listen(PORT, () => {
             console.log(`Age of Agents Secured Server running at http://localhost:${PORT}`);
         });
     });
