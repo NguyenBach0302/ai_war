@@ -2132,7 +2132,13 @@ const Game = (function() {
             const isHuman = i === 0;
             html += `
                 <div class="agent-setup-card" style="border-left: 4px solid ${COLORS[i].main}">
-                    <div style="font-weight:bold; margin-bottom:10px; color:${COLORS[i].main}">${isHuman ? 'COMMANDER (YOU)' : 'ENEMY AGENT'}</div>
+                    <div class="agent-card-head">
+                        <div>
+                            <div class="brand-kicker">Slot ${i + 1}</div>
+                            <div class="agent-role" style="color:${COLORS[i].main}">${isHuman ? 'Commander' : 'Enemy Agent'}</div>
+                        </div>
+                        <span class="agent-badge">${isHuman ? 'You' : 'AI'}</span>
+                    </div>
                     <div class="auth-input-group">
                         <label>AI Strategy</label>
                         <select id="ai-provider-${i}" ${isHuman ? 'disabled' : ''}>

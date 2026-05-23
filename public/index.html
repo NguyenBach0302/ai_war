@@ -46,20 +46,34 @@
 
     <!-- AUTH OVERLAY -->
     <div id="auth-overlay">
-        <div class="setup-box panel" style="max-width: 400px; padding: 40px;">
-            <div class="setup-title" id="auth-title" style="margin-bottom: 30px;">Commander Login</div>
+        <div class="auth-shell">
+            <div class="auth-brief">
+                <div class="brand-kicker">AI War Command</div>
+                <h2>Age of Agents</h2>
+                <p>Enter the command room, select your model opponent, and deploy units in a live tactical arena.</p>
+                <div class="auth-stats">
+                    <div><strong>2P</strong><span>Online duel</span></div>
+                    <div><strong>AI</strong><span>Model battles</span></div>
+                    <div><strong>RTS</strong><span>Live command</span></div>
+                </div>
+            </div>
+            <div class="auth-card panel">
+                <div class="auth-card-head">
+                    <div class="setup-title" id="auth-title">Commander Login</div>
+                    <div class="auth-subtitle">Secure command access</div>
+                </div>
             
             <!-- Login Form -->
             <div id="login-form">
                 <div class="auth-input-group">
                     <label>Username</label>
-                    <input type="text" id="username" placeholder="Enter username">
+                    <input type="text" id="username" placeholder="Enter username" autocomplete="username">
                 </div>
                 <div class="auth-input-group">
                     <label>Password</label>
-                    <input type="password" id="password" placeholder="Enter password">
+                    <input type="password" id="password" placeholder="Enter password" autocomplete="current-password">
                 </div>
-                <button class="buy-btn" id="login-btn" onclick="Auth.login()" style="width: 100%; height: 50px;">Login to Command</button>
+                <button class="buy-btn primary-action" id="login-btn" onclick="Auth.login()">Login to Command</button>
                 
                 <div class="auth-footer">
                     <span class="auth-link">New commander? <strong onclick="Auth.toggleForm('register')">Create an account</strong></span>
@@ -70,21 +84,22 @@
             <div id="register-form" style="display: none;">
                 <div class="auth-input-group">
                     <label>New Username</label>
-                    <input type="text" id="reg-username" placeholder="Choose a username">
+                    <input type="text" id="reg-username" placeholder="Choose a username" autocomplete="username">
                 </div>
                 <div class="auth-input-group">
                     <label>New Password</label>
-                    <input type="password" id="reg-password" placeholder="Choose a password">
+                    <input type="password" id="reg-password" placeholder="Choose a password" autocomplete="new-password">
                 </div>
                 <div class="auth-input-group">
                     <label>Confirm Password</label>
-                    <input type="password" id="reg-password-confirm" placeholder="Confirm password">
+                    <input type="password" id="reg-password-confirm" placeholder="Confirm password" autocomplete="new-password">
                 </div>
-                <button class="buy-btn" id="register-btn" onclick="Auth.register()" style="width: 100%; height: 50px; background: var(--accent); color: white;">Initialize Account</button>
+                <button class="buy-btn primary-action accent-action" id="register-btn" onclick="Auth.register()">Initialize Account</button>
                 
                 <div class="auth-footer">
                     <span class="auth-link">Already have an account? <strong onclick="Auth.toggleForm('login')">Login here</strong></span>
                 </div>
+            </div>
             </div>
         </div>
     </div>
@@ -100,11 +115,11 @@
         <div class="map-wrap" id="map-wrap">
             <canvas id="gameCanvas"></canvas>
             <div class="camera-controls" id="camera-controls">
-                <button type="button" onclick="Game.panCamera(-420)">‹</button>
+                <button type="button" onclick="Game.panCamera(-420)">&lt;</button>
                 <button type="button" onclick="Game.focusCamera('home')">Home</button>
                 <button type="button" onclick="Game.focusCamera('mid')">Mid</button>
                 <button type="button" onclick="Game.focusCamera('enemy')">Enemy</button>
-                <button type="button" onclick="Game.panCamera(420)">›</button>
+                <button type="button" onclick="Game.panCamera(420)">&gt;</button>
                 <button type="button" class="zoom-btn" onclick="Game.zoomCamera(-0.1)">-</button>
                 <button type="button" class="zoom-label" id="camera-zoom-label" onclick="Game.setCameraZoom(1)">100%</button>
                 <button type="button" class="zoom-btn" onclick="Game.zoomCamera(0.1)">+</button>
@@ -136,17 +151,26 @@
 
     <!-- ADVANCED PER-AGENT SETUP -->
     <div id="setup-overlay" style="display:none;">
-        <div class="setup-box panel" style="max-width: 900px; width: 95%;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <div class="setup-title" style="margin: 0;">Strategic Configuration</div>
+        <div class="setup-box panel setup-menu">
+            <div class="setup-header">
+                <div>
+                    <div class="brand-kicker">War Room</div>
+                    <div class="setup-title">Strategic Configuration</div>
+                </div>
                 <div id="admin-setup-btn-wrap"></div>
             </div>
             
-            <div class="setup-row" style="margin-bottom: 20px; justify-content: center; gap: 20px;">
-                <label style="font-weight: bold; color: var(--accent);">Combatants:</label>
-                <select id="player-count" style="width: 150px; font-weight: bold;" onchange="Game.updateSetupUI()">
-                    <option value="2" selected>2 Players</option>
-                </select>
+            <div class="match-strip">
+                <div class="match-meta">
+                    <span>Match Type</span>
+                    <strong>Commander vs Agent</strong>
+                </div>
+                <div class="setup-row">
+                    <label>Combatants</label>
+                    <select id="player-count" onchange="Game.updateSetupUI()">
+                        <option value="2" selected>2 Players</option>
+                    </select>
+                </div>
             </div>
 
             <div class="setup-grid-config" id="agents-config">
@@ -154,8 +178,8 @@
             </div>
 
             <div class="setup-actions">
-                <button class="buy-btn" style="height:45px; font-size:16px;" onclick="Online.findMatch()">Find Online Match</button>
-                <button class="buy-btn secondary-btn" style="height:45px; font-size:16px;" onclick="Game.init()">Play vs AI</button>
+                <button class="buy-btn primary-action" onclick="Online.findMatch()">Find Online Match</button>
+                <button class="buy-btn secondary-btn primary-action" onclick="Game.init()">Play vs AI</button>
             </div>
             <div id="online-status" class="online-status"></div>
         </div>
