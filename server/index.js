@@ -27,6 +27,8 @@ const SERVER_MAP_W = 2400;
 const SERVER_LANE_Y = 382;
 const SERVER_BASE_R = 62;
 const SERVER_MAX_UNITS_PER_PLAYER = 50;
+const SERVER_MANA_REGEN_INTERVAL_FRAMES = 60;
+const SERVER_MANA_REGEN_AMOUNT = 4;
 const waitingMatches = [];
 const matches = new Map();
 const ADMIN_UNIT_FIELDS = new Set([
@@ -310,6 +312,18 @@ function broadcastServerFrame(match) {
     sendMatchEvent(match, 'match-state', payload);
 }
 
+function endServerMatch(match, reason = 'finished') {
+    if (!match || match.ended) return;
+    match.ended = true;
+    broadcastServerFrame(match);
+    sendMatchEvent(match, 'match-ended', {
+        reason,
+        state: match.stateSnapshot,
+        winnerIndex: match.sim?.players.find(player => !player.eliminated)?.id ?? null
+    });
+    setTimeout(() => removeMatch(match.id), 1500);
+}
+
 function handleMatchBuy(match, userId, unitType) {
     if (!match || !match.started || match.ended) {
         return { ok: false, status: 404, message: 'Match not found' };
@@ -508,9 +522,9 @@ function tryServerSkill(match, unit, target) {
     }
 
     if (lower.includes('gunman') || lower.includes('gunner')) {
-        if (unit.mana >= 30 && target) {
-            unit.mana -= 30;
-            unit.skillCooldown = 120;
+        if (unit.mana >= 60 && target) {
+            unit.mana -= 60;
+            unit.skillCooldown = 240;
             setServerAnim(unit, 'attack', sim.frame);
             addServerProjectileVisual(match, unit, target, 'grenade');
             applyServerAreaDamage(match, unit, getServerTargetPoint(target), 48, Number(unit.meta.dmg || 1) * 1.8, 'physical', 'grenade');
@@ -518,9 +532,9 @@ function tryServerSkill(match, unit, target) {
         }
     }
 
-    if (lower.includes('mage') && unit.mana >= 30 && target) {
-        unit.mana -= 30;
-        unit.skillCooldown = 90;
+    if (lower.includes('mage') && unit.mana >= 80 && target) {
+        unit.mana -= 80;
+        unit.skillCooldown = 240;
         setServerAnim(unit, 'attack_2', sim.frame);
         addServerProjectileVisual(match, unit, target, 'fire');
         applyServerAreaDamage(match, unit, getServerTargetPoint(target), 70, 55, 'magic', 'fire');
@@ -528,9 +542,9 @@ function tryServerSkill(match, unit, target) {
         return true;
     }
 
-    if (lower.includes('guard') && unit.mana >= 30) {
-        unit.mana -= 30;
-        unit.skillCooldown = 300;
+    if (lower.includes('guard') && unit.mana >= 80) {
+        unit.mana -= 80;
+        unit.skillCooldown = 420;
         unit.hp = Math.min(unit.maxHp * 1.4, unit.hp + unit.maxHp * 0.35);
         setServerAnim(unit, 'protect', sim.frame);
         addServerVfxVisual(match, unit.x, unit.y - 24, 'PROTECT', '#94a3b8');
@@ -547,13 +561,13 @@ function tryServerSkill(match, unit, target) {
         return true;
     }
 
-    if (lower.includes('assassin') && unit.mana >= 30) {
+    if (lower.includes('assassin') && unit.mana >= 80) {
         const dashTarget = sim.units
             .filter(other => other.owner !== unit.owner && other.hp > 0 && serverDist(unit, other) <= 300)
             .sort((a, b) => serverDist(unit, b) - serverDist(unit, a))[0];
         if (!dashTarget) return false;
-        unit.mana -= 30;
-        unit.skillCooldown = 120;
+        unit.mana -= 80;
+        unit.skillCooldown = 300;
         const side = unit.facing === 'left' ? 1 : -1;
         unit.x = dashTarget.x + side * 28;
         unit.y = dashTarget.y;
@@ -564,13 +578,13 @@ function tryServerSkill(match, unit, target) {
         return true;
     }
 
-    if (lower.includes('healer') && unit.mana >= 30) {
+    if (lower.includes('healer') && unit.mana >= 80) {
         const ally = sim.units
             .filter(other => other.owner === unit.owner && other.id !== unit.id && other.hp < other.maxHp)
             .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
         if (ally) {
-            unit.mana -= 30;
-            unit.skillCooldown = 90;
+            unit.mana -= 80;
+            unit.skillCooldown = 240;
             setServerAnim(unit, 'attack_3', sim.frame);
             addServerProjectileVisual(match, unit, ally, 'heal');
             const amount = Math.max(35, Number(unit.meta.dmg || 1) * 8);
@@ -580,9 +594,9 @@ function tryServerSkill(match, unit, target) {
         }
     }
 
-    if (lower.includes('bowman') && unit.mana >= 30) {
-        unit.mana -= 30;
-        unit.skillCooldown = 180;
+    if (lower.includes('bowman') && unit.mana >= 40) {
+        unit.mana -= 40;
+        unit.skillCooldown = 300;
         unit.penBoostUntil = sim.frame + 180;
         setServerAnim(unit, 'attack_3', sim.frame);
         addServerVfxVisual(match, unit.x, unit.y - 20, 'FOCUS', '#fbbf24');
@@ -609,9 +623,9 @@ function updateServerSim(match) {
     sim.units.forEach(unit => {
         if (unit.cooldown > 0) unit.cooldown -= 1;
         if (unit.skillCooldown > 0) unit.skillCooldown -= 1;
-        if (sim.frame % 30 === 0) {
+        if (sim.frame % SERVER_MANA_REGEN_INTERVAL_FRAMES === 0) {
             unit.hp = Math.min(unit.maxHp, unit.hp + 1);
-            unit.mana = Math.min(unit.maxMana, unit.mana + 8);
+            unit.mana = Math.min(unit.maxMana, unit.mana + SERVER_MANA_REGEN_AMOUNT);
         }
         if (unit.frozenUntil && unit.frozenUntil > sim.frame) {
             unit.state = 'frozen';
@@ -672,6 +686,8 @@ function updateServerSim(match) {
 
     sim.seq += 1;
     if (sim.frame % MATCH_BROADCAST_EVERY_FRAMES === 0) broadcastServerFrame(match);
+    const activePlayers = sim.players.filter(player => !player.eliminated);
+    if (activePlayers.length <= 1) endServerMatch(match, 'finished');
 }
 
 function startServerSimulation(match) {

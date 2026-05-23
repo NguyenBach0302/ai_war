@@ -259,6 +259,9 @@ const Online = (function() {
             return;
         }
         if (eventName === 'match-ended') {
+            if (payload?.state) Game.applyAuthoritativeState(payload.state);
+            currentMatchId = null;
+            activeStartedMatchId = null;
             closeStream();
             setStatus('Match ended.');
         }
@@ -351,7 +354,12 @@ const Online = (function() {
         closeStream();
     }
 
-    return { findMatch, sendBuy, leave };
+    function clearLocalMatch() {
+        currentMatchId = null;
+        activeStartedMatchId = null;
+    }
+
+    return { findMatch, sendBuy, leave, clearLocalMatch };
 })();
 
 const Admin = (function() {
@@ -1467,6 +1475,7 @@ const Game = (function() {
         const activePlayers = players.filter(p => !p.eliminated);
         if (players[localPlayerIndex]?.eliminated || activePlayers.length <= 1) {
             running = false;
+            Online.clearLocalMatch();
             const overlay = document.getElementById('victory-overlay');
             const vText = document.getElementById('victory-text');
             if (overlay && vText) {
