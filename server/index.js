@@ -11,7 +11,7 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const MATCH_START_DELAY_MS = 3000;
 const MATCH_TTL_MS = 1000 * 60 * 60;
