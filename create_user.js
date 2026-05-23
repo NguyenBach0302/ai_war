@@ -7,7 +7,7 @@ async function createTestAccount() {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     try {
-        await pool.query('INSERT INTO users (username, password, gold) VALUES (?, ?, ?)', [username, hashedPassword, 1000]);
+        await pool.query('INSERT INTO users (username, password, gold, role) VALUES (?, ?, ?, ?)', [username, hashedPassword, 1000, 0]);
         console.log(`Test account created:`);
         console.log(`Username: ${username}`);
         console.log(`Password: ${password}`);

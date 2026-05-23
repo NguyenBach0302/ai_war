@@ -13,12 +13,65 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const MATCH_START_DELAY_MS = 3000;
+const MATCH_TTL_MS = 1000 * 60 * 60;
+const MATCH_FPS = 60;
+const MATCH_ACTION_DELAY_FRAMES = 24;
+const waitingMatches = [];
+const matches = new Map();
+const ADMIN_UNIT_FIELDS = new Set([
+    'hp', 'mana', 'dmg', 'atk_speed', 'range', 'move_speed', 'armor', 'mres',
+    'crit_chance', 'phys_pen', 'magic_pen', 'dodge', 'lifesteal', 'cost'
+]);
+const ICEMAN_UNIT = {
+    name: 'Iceman',
+    icon: '❄️',
+    hp: 100,
+    mana: 90,
+    move_speed: 1.2,
+    range: 130,
+    dmg: 12,
+    atk_speed: 1.1,
+    cost: 60,
+    special: 'Summon Frost: Freeze 3 nearest enemies and deal 20 true damage; passive freezes adjacent units below 50% HP',
+    role: 'Control Mage',
+    dmg_type: 'magic',
+    crit_chance: 0,
+    armor: 10,
+    mres: 20,
+    phys_pen: 0,
+    magic_pen: 0.10,
+    dodge: 0.1,
+    lifesteal: 0
+};
+const CHILYGIRL_UNIT = {
+    name: 'ChilyGirl',
+    icon: '🌶️',
+    hp: 85,
+    mana: 100,
+    move_speed: 1.15,
+    range: 25,
+    dmg: 10,
+    atk_speed: 2.5,
+    cost: 70,
+    special: 'Immortal Body: Cannot lose HP for 3s, x2 attack speed, attacks deal +5 true damage; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
+    role: 'Melee Bruiser',
+    dmg_type: 'physical',
+    crit_chance: 0,
+    armor: 50,
+    mres: 50,
+    phys_pen: 0,
+    magic_pen: 0,
+    dodge: 0.1,
+    lifesteal: 0
+};
 
 app.use(cors());
 app.use(express.json());
 
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/res', express.static(path.join(__dirname, '../res')));
 
 // Explicitly serve index.html for the root route
 app.get('/', (req, res) => {
@@ -43,6 +96,41 @@ const isAdmin = (req, res, next) => {
     next();
 };
 
+function makeMatchId() {
+    return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sendMatchEvent(match, event, payload) {
+    const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+    match.clients.forEach(client => client.write(data));
+}
+
+function getMatchPayload(match, userId) {
+    return {
+        matchId: match.id,
+        playerIndex: match.players.findIndex(player => player.id === userId),
+        players: match.players.map(player => ({ id: player.id, username: player.username })),
+        seed: match.seed,
+        startsAt: match.startsAt
+    };
+}
+
+function removeMatch(matchId) {
+    const match = matches.get(matchId);
+    if (!match) return;
+    match.clients.forEach(client => client.end());
+    matches.delete(matchId);
+    const waitingIdx = waitingMatches.findIndex(id => id === matchId);
+    if (waitingIdx >= 0) waitingMatches.splice(waitingIdx, 1);
+}
+
+setInterval(() => {
+    const now = Date.now();
+    matches.forEach(match => {
+        if (now - match.createdAt > MATCH_TTL_MS) removeMatch(match.id);
+    });
+}, 1000 * 60 * 10).unref?.();
+
 const PROVIDERS = {
     deepseek: {
         url: 'https://api.deepseek.com/v1/chat/completions',
@@ -54,9 +142,42 @@ const PROVIDERS = {
     }
 };
 
+async function upsertUnit(unit) {
+    const fields = [
+        'name', 'icon', 'hp', 'mana', 'move_speed', 'range', 'dmg', 'atk_speed',
+        'cost', 'special', 'role', 'dmg_type', 'crit_chance', 'armor', 'mres',
+        'phys_pen', 'magic_pen', 'dodge', 'lifesteal'
+    ];
+    const values = fields.map(field => unit[field]);
+    const updates = fields
+        .filter(field => field !== 'name')
+        .map(field => `\`${field}\` = VALUES(\`${field}\`)`)
+        .join(', ');
+
+    await pool.query(
+        `INSERT INTO units (${fields.map(field => `\`${field}\``).join(', ')}) VALUES (${fields.map(() => '?').join(', ')}) ON DUPLICATE KEY UPDATE ${updates}`,
+        values
+    );
+}
+
+async function ensureGameUnits() {
+    await upsertUnit(ICEMAN_UNIT);
+    await upsertUnit(CHILYGIRL_UNIT);
+    await pool.query('DELETE FROM units WHERE name = ?', ['Hunter']);
+}
+
 // --- Auth Routes ---
 app.post('/api/auth/register', asyncHandler(async (req, res) => {
-    const { username, password } = req.body;
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+
+    if (!/^[a-zA-Z0-9_]{3,24}$/.test(username)) {
+        return res.status(400).json({ message: 'Username must be 3-24 letters, numbers, or underscores' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
     try {
         // Default role is 4 as per DB schema
@@ -87,8 +208,15 @@ app.get('/api/units', asyncHandler(async (req, res) => {
 
 app.post('/api/admin/units/update', authenticate, isAdmin, asyncHandler(async (req, res) => {
     const { id, stats } = req.body;
-    const fields = Object.keys(stats).map(key => `\`${key}\` = ?`).join(', ');
-    const values = [...Object.values(stats), id];
+    const safeEntries = Object.entries(stats || {})
+        .filter(([key, value]) => ADMIN_UNIT_FIELDS.has(key) && Number.isFinite(Number(value)));
+
+    if (!Number.isInteger(Number(id)) || safeEntries.length === 0) {
+        return res.status(400).json({ message: 'Invalid unit update payload' });
+    }
+
+    const fields = safeEntries.map(([key]) => `\`${key}\` = ?`).join(', ');
+    const values = [...safeEntries.map(([, value]) => Number(value)), Number(id)];
     await pool.query(`UPDATE units SET ${fields} WHERE id = ?`, values);
     res.json({ message: 'Unit updated' });
 }));
@@ -115,7 +243,9 @@ app.post('/api/session/save', authenticate, asyncHandler(async (req, res) => {
 app.get('/api/session/active', authenticate, asyncHandler(async (req, res) => {
     const [sessions] = await pool.query('SELECT state_json FROM game_sessions WHERE user_id = ? AND is_active = 1', [req.user.id]);
     if (sessions.length > 0) {
-        res.json({ hasActive: true, state: JSON.parse(sessions[0].state_json) });
+        const rawState = sessions[0].state_json;
+        const state = typeof rawState === 'string' ? JSON.parse(rawState) : rawState;
+        res.json({ hasActive: true, state });
     } else {
         res.json({ hasActive: false });
     }
@@ -125,6 +255,109 @@ app.post('/api/session/clear', authenticate, asyncHandler(async (req, res) => {
     await pool.query('UPDATE game_sessions SET is_active = 0 WHERE user_id = ?', [req.user.id]);
     res.json({ message: 'Session cleared' });
 }));
+
+// --- Online Match Routes ---
+app.post('/api/match/join', authenticate, (req, res) => {
+    const user = { id: req.user.id, username: req.user.username };
+
+    for (const match of matches.values()) {
+        if (!match.ended && match.players.some(player => player.id === user.id)) {
+            return res.json({ status: match.started ? 'started' : 'waiting', ...getMatchPayload(match, user.id) });
+        }
+    }
+
+    const waitingId = waitingMatches.shift();
+    const waitingMatch = waitingId ? matches.get(waitingId) : null;
+    if (waitingMatch && waitingMatch.players.length === 1 && waitingMatch.players[0].id !== user.id) {
+        waitingMatch.players.push(user);
+        waitingMatch.started = true;
+        waitingMatch.startsAt = Date.now() + MATCH_START_DELAY_MS;
+        sendMatchEvent(waitingMatch, 'match-start', { ...getMatchPayload(waitingMatch, waitingMatch.players[0].id), playerIndex: 0 });
+        res.json({ status: 'started', ...getMatchPayload(waitingMatch, user.id) });
+        return;
+    }
+
+    const match = {
+        id: makeMatchId(),
+        players: [user],
+        clients: new Map(),
+        seed: Math.floor(Math.random() * 0xffffffff),
+        startsAt: null,
+        started: false,
+        ended: false,
+        createdAt: Date.now()
+    };
+    matches.set(match.id, match);
+    waitingMatches.push(match.id);
+    res.json({ status: 'waiting', ...getMatchPayload(match, user.id) });
+});
+
+app.get('/api/match/stream', (req, res) => {
+    let decoded;
+    try {
+        decoded = jwt.verify(String(req.query.token || ''), JWT_SECRET);
+    } catch (err) {
+        return res.status(401).end();
+    }
+
+    const match = matches.get(String(req.query.matchId || ''));
+    if (!match || !match.players.some(player => player.id === decoded.id)) {
+        return res.status(404).end();
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+    res.write(': connected\n\n');
+    match.clients.set(decoded.id, res);
+
+    if (match.started) {
+        res.write(`event: match-start\ndata: ${JSON.stringify(getMatchPayload(match, decoded.id))}\n\n`);
+    }
+
+    req.on('close', () => {
+        if (match.clients.get(decoded.id) === res) match.clients.delete(decoded.id);
+        sendMatchEvent(match, 'player-disconnected', { userId: decoded.id });
+    });
+});
+
+app.post('/api/match/action', authenticate, (req, res) => {
+    const match = matches.get(String(req.body.matchId || ''));
+    if (!match || !match.started || match.ended) {
+        return res.status(404).json({ message: 'Match not found' });
+    }
+
+    const playerIndex = match.players.findIndex(player => player.id === req.user.id);
+    if (playerIndex < 0) return res.status(403).json({ message: 'Not in this match' });
+
+    const type = String(req.body.type || '');
+    const unitType = String(req.body.unitType || '');
+    if (type !== 'buy' || !/^[a-zA-Z0-9 _-]{1,40}$/.test(unitType)) {
+        return res.status(400).json({ message: 'Invalid match action' });
+    }
+
+    const elapsedMs = Math.max(0, Date.now() - match.startsAt);
+    const actionFrame = Math.max(1, Math.floor(elapsedMs / 1000 * MATCH_FPS) + MATCH_ACTION_DELAY_FRAMES);
+    sendMatchEvent(match, 'match-action', {
+        action: 'buy',
+        playerIndex,
+        unitType,
+        actionFrame,
+        sentAt: Date.now()
+    });
+    res.json({ ok: true });
+});
+
+app.post('/api/match/leave', authenticate, (req, res) => {
+    const match = matches.get(String(req.body.matchId || ''));
+    if (match && match.players.some(player => player.id === req.user.id)) {
+        match.ended = true;
+        sendMatchEvent(match, 'match-ended', { reason: 'left', userId: req.user.id });
+        setTimeout(() => removeMatch(match.id), 1000);
+    }
+    res.json({ ok: true });
+});
 
 // --- Game Routes ---
 app.post('/api/game/end', authenticate, asyncHandler(async (req, res) => {
@@ -141,7 +374,7 @@ app.post('/api/game/end', authenticate, asyncHandler(async (req, res) => {
 }));
 
 // --- AI Strategy Route ---
-app.post('/api/ai/strategy', asyncHandler(async (req, res) => {
+app.post('/api/ai/strategy', authenticate, asyncHandler(async (req, res) => {
     const { player, gameState, config } = req.body;
     
     const providerName = config?.provider || 'deepseek';
@@ -237,6 +470,10 @@ app.post('/api/ai/strategy', asyncHandler(async (req, res) => {
     }
 }));
 
-app.listen(PORT, () => {
-    console.log(`Age of Agents Secured Server running at http://localhost:${PORT}`);
-});
+ensureGameUnits()
+    .catch(err => console.error('[Unit Migration] Unable to ensure game units:', err.message))
+    .finally(() => {
+        app.listen(PORT, () => {
+            console.log(`Age of Agents Secured Server running at http://localhost:${PORT}`);
+        });
+    });

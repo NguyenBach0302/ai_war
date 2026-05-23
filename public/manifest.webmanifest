@@ -1,0 +1,11 @@
+{
+  "name": "Age of Agents",
+  "short_name": "Agents",
+  "description": "Mobile fullscreen strategy arena.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#020617",
+  "theme_color": "#020617"
+}

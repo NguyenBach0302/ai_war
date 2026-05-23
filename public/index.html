@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Age of Agents — Multi-Model War Room</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+    <meta name="theme-color" content="#020617">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Age of Agents">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Age of Agents - Multi-Model War Room</title>
+    <link rel="manifest" href="manifest.webmanifest">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -93,6 +99,14 @@
 
         <div class="map-wrap" id="map-wrap">
             <canvas id="gameCanvas"></canvas>
+            <div class="camera-controls" id="camera-controls">
+                <button type="button" onclick="Game.panCamera(-420)">‹</button>
+                <button type="button" onclick="Game.focusCamera('home')">Home</button>
+                <button type="button" onclick="Game.focusCamera('mid')">Mid</button>
+                <button type="button" onclick="Game.focusCamera('enemy')">Enemy</button>
+                <button type="button" onclick="Game.panCamera(420)">›</button>
+                <button type="button" class="fullscreen-btn" onclick="Game.toggleFullscreen()">FULL</button>
+            </div>
             <div id="deployment-hud" style="display:none;">
                 <div class="hud-title">Deployment Zone</div>
                 <div class="unit-grid" id="unit-buttons"></div>
@@ -128,18 +142,19 @@
             <div class="setup-row" style="margin-bottom: 20px; justify-content: center; gap: 20px;">
                 <label style="font-weight: bold; color: var(--accent);">Combatants:</label>
                 <select id="player-count" style="width: 150px; font-weight: bold;" onchange="Game.updateSetupUI()">
-                    <option value="1">1 Player</option>
-                    <option value="2">2 Players</option>
-                    <option value="3">3 Players</option>
-                    <option value="4" selected>4 Players</option>
+                    <option value="2" selected>2 Players</option>
                 </select>
             </div>
 
             <div class="setup-grid-config" id="agents-config">
-                <!-- Config cards for 4 players -->
+                <!-- Config cards for 2 players -->
             </div>
 
-            <button class="buy-btn" style="height:45px; font-size:16px; margin-top:20px;" onclick="Game.init()">Launch Session</button>
+            <div class="setup-actions">
+                <button class="buy-btn" style="height:45px; font-size:16px;" onclick="Online.findMatch()">Find Online Match</button>
+                <button class="buy-btn secondary-btn" style="height:45px; font-size:16px;" onclick="Game.init()">Play vs AI</button>
+            </div>
+            <div id="online-status" class="online-status"></div>
         </div>
     </div>
 
