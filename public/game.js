@@ -673,6 +673,58 @@ const Game = (function() {
         return (fallback || nearest).target;
     };
 
+    function getClientProjectileSprite(unit) {
+        const type = String(unit.type || '').toLowerCase();
+        if (type.includes('bowman')) return 'arrow';
+        if (type.includes('mage')) return 'mage_charge';
+        if (type.includes('healer')) return 'healer_fire_1';
+        if (type.includes('iceman')) return 'iceman_magic_arrow';
+        if (type.includes('chilygirl')) return 'chily';
+        return null;
+    }
+
+    function isProjectileAttackAction(unit) {
+        const action = String(unit.animAction || '').toLowerCase();
+        const range = Number(unit.meta?.range || 0);
+        if (range < 35) return false;
+        return action.includes('shot') || action.includes('attack') || action.includes('charge');
+    }
+
+    function synthesizeAuthoritativeProjectiles(previousUnits) {
+        if (!onlineMode || !previousUnits || previousUnits.size === 0) return;
+        units.forEach(unit => {
+            if (!unit || unit.hp <= 0 || !isProjectileAttackAction(unit)) return;
+            const previous = previousUnits.get(unit.id);
+            if (!previous || (previous.animStartedAt === unit.animStartedAt && previous.animAction === unit.animAction)) return;
+            const target = pickCombatTarget(unit);
+            if (!target) return;
+            const tx = getTargetX(target);
+            const ty = getTargetY(target);
+            const targetRadius = getTargetRadius(target);
+            const distance = dist(unit, { x: tx, y: ty }) - targetRadius;
+            if (distance > Number(unit.meta?.range || 0) + 18) return;
+            spawnClientProjectile({
+                type: 'projectile',
+                id: `fallback_${unit.id}_${unit.animStartedAt || frameCount}_${unit.animAction || 'attack'}`,
+                frame: Number(unit.animStartedAt || frameCount),
+                attackerId: unit.id,
+                attackerType: unit.type,
+                targetId: target.id ?? `base-${target.id}`,
+                targetType: target.type || 'Base',
+                x: unit.x,
+                y: unit.y - 8,
+                tx,
+                ty,
+                owner: unit.owner,
+                dmg: Number(unit.meta?.dmg || 0),
+                speed: 8,
+                color: players[unit.owner]?.color?.main || '#fff',
+                dmgType: unit.meta?.dmg_type || 'physical',
+                sprite: getClientProjectileSprite(unit)
+            });
+        });
+    }
+
     function loadSprite(src) {
         const img = new Image();
         img.src = src;
@@ -1446,6 +1498,10 @@ const Game = (function() {
         if (!state || seq <= onlineStateSeq) return;
         onlineStateSeq = seq;
         frameCount = Number(state.frameCount || payload.frame || frameCount);
+        const previousUnits = new Map(units.map(unit => [unit.id, {
+            animAction: unit.animAction,
+            animStartedAt: unit.animStartedAt
+        }]));
         if (Array.isArray(state.players)) {
             state.players.forEach(sp => {
                 const p = players[sp.id];
@@ -1465,6 +1521,7 @@ const Game = (function() {
             meta: { ...CLASSES[u.type] },
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
+        synthesizeAuthoritativeProjectiles(previousUnits);
         if (Array.isArray(payload.events)) {
             payload.events.forEach(event => {
                 if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
@@ -1490,6 +1547,9 @@ const Game = (function() {
 
     function spawnClientProjectile(event) {
         if (projectiles.some(pr => pr.id === event.id)) return;
+        const sourceFrame = Number(event.frame || 0);
+        const attackerId = event.attackerId || null;
+        if (attackerId && sourceFrame && projectiles.some(pr => pr.attackerId === attackerId && pr.sourceFrame === sourceFrame)) return;
         const x = Number(event.x || 0);
         const y = Number(event.y || 0);
         const tx = Number(event.tx || 0);
@@ -1502,6 +1562,10 @@ const Game = (function() {
             ty,
             startX: x,
             startY: y,
+            sourceFrame,
+            attackerId,
+            attackerType: event.attackerType || null,
+            targetId: event.targetId || null,
             owner: Number(event.owner || 0),
             dmg: Number(event.dmg || 0),
             speed: Number(event.speed || 8),
