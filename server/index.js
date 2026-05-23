@@ -67,7 +67,7 @@ const CHILYGIRL_UNIT = {
 };
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '../public')));
@@ -110,6 +110,16 @@ function getMatchFrame(match) {
     return Math.max(0, Math.floor((Date.now() - match.startsAt) / 1000 * MATCH_FPS));
 }
 
+function getConfirmedFrame(match) {
+    return Math.max(0, getMatchFrame(match) - MATCH_ACTION_DELAY_FRAMES);
+}
+
+function sendMatchEventToPlayer(match, userId, event, payload) {
+    const client = match.clients.get(userId);
+    if (!client) return;
+    client.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
 function getMatchPayload(match, userId) {
     return {
         matchId: match.id,
@@ -118,6 +128,7 @@ function getMatchPayload(match, userId) {
         seed: match.seed,
         startsAt: match.startsAt,
         serverNow: Date.now(),
+        confirmedFrame: getConfirmedFrame(match),
         units: match.units || null
     };
 }
@@ -306,7 +317,11 @@ app.post('/api/match/join', authenticate, asyncHandler(async (req, res) => {
         createdAt: Date.now(),
         nextActionId: 1,
         lastActionFrame: 0,
-        actionLog: []
+        actionLog: [],
+        stateSeq: 0,
+        stateSnapshot: null,
+        stateLog: [],
+        eventHistory: []
     };
     matches.set(match.id, match);
     waitingMatches.push(match.id);
@@ -338,6 +353,9 @@ app.get('/api/match/stream', (req, res) => {
         (match.actionLog || []).forEach(action => {
             res.write(`event: match-action\ndata: ${JSON.stringify(action)}\n\n`);
         });
+        if (match.stateSnapshot) {
+            res.write(`event: match-state\ndata: ${JSON.stringify(match.stateSnapshot)}\n\n`);
+        }
     }
 
     const syncTimer = setInterval(() => {
@@ -348,6 +366,7 @@ app.get('/api/match/stream', (req, res) => {
         res.write(`event: match-sync\ndata: ${JSON.stringify({
             serverNow: Date.now(),
             serverFrame: getMatchFrame(match),
+            confirmedFrame: getConfirmedFrame(match),
             lastActionId: Number(match.nextActionId || 1) - 1,
             actions: (match.actionLog || []).slice(-50)
         })}\n\n`);
@@ -394,6 +413,50 @@ app.post('/api/match/action', authenticate, (req, res) => {
     match.nextActionId = actionId + 1;
     match.actionLog = [...(match.actionLog || []), payload].slice(-200);
     sendMatchEvent(match, 'match-action', payload);
+    res.json({ ok: true });
+});
+
+app.post('/api/match/state', authenticate, (req, res) => {
+    const match = matches.get(String(req.body.matchId || ''));
+    if (!match || !match.started || match.ended) {
+        return res.status(404).json({ message: 'Match not found' });
+    }
+
+    const playerIndex = match.players.findIndex(player => player.id === req.user.id);
+    if (playerIndex !== 0) {
+        return res.status(403).json({ message: 'Only the authoritative simulator can publish state' });
+    }
+
+    const seq = Number(req.body.seq || 0);
+    const frame = Number(req.body.frame || 0);
+    const state = req.body.state;
+    const events = Array.isArray(req.body.events) ? req.body.events.slice(0, 200) : [];
+    if (!Number.isFinite(seq) || !Number.isFinite(frame) || !state || typeof state !== 'object') {
+        return res.status(400).json({ message: 'Invalid match state' });
+    }
+    if (seq <= Number(match.stateSeq || 0)) {
+        return res.json({ ok: true, ignored: true });
+    }
+
+    const payload = {
+        seq,
+        frame,
+        serverNow: Date.now(),
+        state,
+        events
+    };
+    match.stateSeq = seq;
+    match.stateSnapshot = payload;
+    match.stateLog = [...(match.stateLog || []), payload].slice(-240);
+    if (events.length) {
+        match.eventHistory = [...(match.eventHistory || []), ...events.map(event => ({
+            ...event,
+            serverSeq: seq,
+            serverFrame: frame,
+            serverAt: payload.serverNow
+        }))];
+    }
+    sendMatchEvent(match, 'match-state', payload);
     res.json({ ok: true });
 });
 

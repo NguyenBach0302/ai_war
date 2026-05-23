@@ -227,6 +227,7 @@ const Online = (function() {
                 seed: data.seed,
                 startsAt: data.startsAt,
                 serverNow: data.serverNow,
+                confirmedFrame: data.confirmedFrame,
                 units: data.units
             });
         });
@@ -235,6 +236,9 @@ const Online = (function() {
         });
         source.addEventListener('match-sync', event => {
             Game.syncOnlineClock(JSON.parse(event.data));
+        });
+        source.addEventListener('match-state', event => {
+            Game.applyAuthoritativeState(JSON.parse(event.data));
         });
         source.addEventListener('player-disconnected', () => {
             setStatus('Opponent disconnected. Match can continue, but they may stop responding.');
@@ -438,14 +442,16 @@ const Game = (function() {
     let players = [], units = [], projectiles = [], vfx = [], particles = [], floatingTexts = [], unitsPending = [];
     let aiProcessFlags = [false, false]; 
     let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
-    let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0;
+    let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0;
+    let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0, onlineConfirmedFrame = 0;
     let processedOnlineActionIds = new Set();
+    let pendingOnlineEvents = [];
     let onlineServerClockOffsetMs = 0;
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
     const MAX_UNITS_PER_PLAYER = 50;
-    const ONLINE_RENDER_DELAY_FRAMES = 8;
+    const ONLINE_RENDER_DELAY_FRAMES = 0;
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
     const MELEE_BASE_INTERCEPT_DISTANCE = 220;
@@ -820,16 +826,26 @@ const Game = (function() {
     function calculateDamage(attacker, target, baseDmg, type) {
         if (target.buffs?.some(b => b.type === 'invulnerable')) return { amount: 0, isCrit: false, dodged: false };
         const damageTakenMult = target.buffs?.reduce((mult, b) => b.type === 'damage_taken_mult' ? mult * b.value : mult, 1) ?? 1;
-        if (type === 'true') return { amount: baseDmg * damageTakenMult, isCrit: false, dodged: false };
+        if (type === 'true') {
+            const amount = baseDmg * damageTakenMult;
+            queueOnlineEvent({ type: 'damage', attackerId: attacker.id || null, attackerType: attacker.type || null, targetId: target.id ?? null, targetType: target.type || (target.base ? 'Base' : null), amount, damageType: type, dodged: false, crit: false });
+            return { amount, isCrit: false, dodged: false };
+        }
         const targetDodge = target.meta ? (target.meta.dodge + (target.buffs?.find(b => b.type === 'dodge')?.value || 0)) : 0;
-        if (rng() < targetDodge) return { amount: 0, isCrit: false, dodged: true };
+        if (rng() < targetDodge) {
+            queueOnlineEvent({ type: 'damage', attackerId: attacker.id || null, attackerType: attacker.type || null, targetId: target.id ?? null, targetType: target.type || (target.base ? 'Base' : null), amount: 0, damageType: type, dodged: true, crit: false });
+            return { amount: 0, isCrit: false, dodged: true };
+        }
 
         let finalDmg = baseDmg;
         const attackerCrit = attacker.meta ? (attacker.meta.crit_chance + (attacker.buffs?.find(b => b.type === 'crit_chance')?.value || 0)) : 0;
         const isCrit = rng() < attackerCrit;
         if (isCrit) finalDmg *= 2;
 
-        if (!target.meta) return { amount: finalDmg, isCrit, dodged: false };
+        if (!target.meta) {
+            queueOnlineEvent({ type: 'damage', attackerId: attacker.id || null, attackerType: attacker.type || null, targetId: target.id ?? null, targetType: target.base ? 'Base' : null, amount: finalDmg, damageType: type, dodged: false, crit: isCrit });
+            return { amount: finalDmg, isCrit, dodged: false };
+        }
 
         if (type === 'physical') {
             let armor = target.meta.armor || 0;
@@ -841,7 +857,9 @@ const Game = (function() {
             finalDmg *= (1 - getReduction(mres));
         }
         const bonusTrueDamage = attacker.buffs?.find(b => b.type === 'bonus_true_damage')?.value || 0;
-        return { amount: (finalDmg + bonusTrueDamage) * damageTakenMult, isCrit, dodged: false };
+        const amount = (finalDmg + bonusTrueDamage) * damageTakenMult;
+        queueOnlineEvent({ type: 'damage', attackerId: attacker.id || null, attackerType: attacker.type || null, targetId: target.id ?? null, targetType: target.type || (target.base ? 'Base' : null), amount, damageType: type, dodged: false, crit: isCrit });
+        return { amount, isCrit, dodged: false };
     }
 
     function freezeUnit(target, duration = 180) {
@@ -1196,6 +1214,7 @@ const Game = (function() {
             x: spawn.x, y: spawn.y, laneY: spawn.y, cooldown: 0, state: 'march', radius: 12, buffs: [], isPet: false, untargetableTimer: 0, lastAttacker: null, facing: pIdx === 0 ? 'right' : 'left', blockTimer: 0
         };
         unitsPending.push(u);
+        queueOnlineEvent({ type: 'unit-spawn', unitId: u.id, unitType: targetType, owner: pIdx, x: u.x, y: u.y });
         updateUnitButtons();
     }
 
@@ -1233,6 +1252,10 @@ const Game = (function() {
         if (Array.isArray(payload?.actions)) {
             payload.actions.forEach(applyOnlineAction);
         }
+        const confirmedFrame = Number(payload?.confirmedFrame);
+        if (Number.isFinite(confirmedFrame)) {
+            onlineConfirmedFrame = Math.max(onlineConfirmedFrame, Math.floor(confirmedFrame));
+        }
     }
 
     function processOnlineActions() {
@@ -1240,6 +1263,130 @@ const Game = (function() {
             const next = onlineActions.shift();
             if (next.action === 'buy') spawnUnit(next.playerIndex, next.unitType);
         }
+    }
+
+    function queueOnlineEvent(event) {
+        if (!onlineMode || !onlineAuthoritative) return;
+        pendingOnlineEvents.push({
+            id: `${frameCount}_${pendingOnlineEvents.length}_${event.type || 'event'}`,
+            frame: frameCount,
+            ...event
+        });
+    }
+
+    function serializeOnlineState() {
+        return {
+            frameCount,
+            players: players.map(p => ({
+                id: p.id,
+                name: p.name,
+                gold: p.gold,
+                hp: p.hp,
+                maxHp: p.maxHp,
+                eliminated: !!p.eliminated
+            })),
+            units: units.map(u => ({
+                id: u.id,
+                owner: u.owner,
+                type: u.type,
+                hp: u.hp,
+                maxHp: u.maxHp,
+                mana: u.mana,
+                maxMana: u.maxMana,
+                x: u.x,
+                y: u.y,
+                laneY: u.laneY,
+                cooldown: u.cooldown,
+                state: u.state,
+                radius: u.radius,
+                buffs: u.buffs,
+                isPet: !!u.isPet,
+                untargetableTimer: u.untargetableTimer,
+                facing: u.facing,
+                blockTimer: u.blockTimer,
+                animAction: u.animAction,
+                animStartedAt: u.animStartedAt,
+                currentTargetKey: u.currentTargetKey,
+                baseFocusTargetKey: u.baseFocusTargetKey,
+                icemanPassiveTriggered: !!u.icemanPassiveTriggered,
+                chilyProtectionTriggered: !!u.chilyProtectionTriggered
+            })),
+            projectiles: projectiles.map(pr => ({ ...pr })),
+            vfx: vfx.map(fx => ({ ...fx })),
+            floatingTexts: floatingTexts.map(t => ({ ...t }))
+        };
+    }
+
+    function publishOnlineState(force = false) {
+        if (!onlineMode || !onlineAuthoritative || !onlineMatchId) return;
+        if (!force && frameCount - onlineLastPublishedFrame < 6 && pendingOnlineEvents.length === 0) return;
+        onlineLastPublishedFrame = frameCount;
+        const events = pendingOnlineEvents.splice(0, pendingOnlineEvents.length);
+        const seq = ++onlineStateSeq;
+        fetch('/api/match/state', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${Auth.getToken()}`
+            },
+            body: JSON.stringify({
+                matchId: onlineMatchId,
+                seq,
+                frame: frameCount,
+                state: serializeOnlineState(),
+                events
+            })
+        }).catch(() => {});
+    }
+
+    function applyAuthoritativeState(payload) {
+        if (!onlineMode || onlineAuthoritative) return;
+        const seq = Number(payload?.seq || 0);
+        const state = payload?.state;
+        if (!state || seq <= onlineStateSeq) return;
+        onlineStateSeq = seq;
+        frameCount = Number(state.frameCount || payload.frame || frameCount);
+        if (Array.isArray(state.players)) {
+            state.players.forEach(sp => {
+                const p = players[sp.id];
+                if (!p) return;
+                p.gold = Number(sp.gold || 0);
+                p.hp = Number(sp.hp || 0);
+                p.maxHp = Number(sp.maxHp || p.maxHp);
+                p.eliminated = !!sp.eliminated;
+                const goldEl = document.getElementById(`gold-${p.id}`);
+                if (goldEl) goldEl.innerText = `$ ${Math.floor(p.gold)}`;
+                const hpEl = document.getElementById(`hp-${p.id}`);
+                if (hpEl) hpEl.style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
+            });
+        }
+        units = Array.isArray(state.units) ? state.units.map(u => ({
+            ...u,
+            meta: { ...CLASSES[u.type] },
+            buffs: Array.isArray(u.buffs) ? u.buffs : []
+        })).filter(u => u.meta?.name) : [];
+        projectiles = Array.isArray(state.projectiles) ? state.projectiles.map(pr => ({ ...pr })) : [];
+        vfx = Array.isArray(state.vfx) ? state.vfx.map(fx => ({ ...fx })) : [];
+        floatingTexts = Array.isArray(state.floatingTexts) ? state.floatingTexts.map(t => ({ ...t })) : [];
+        if (Array.isArray(payload.events)) {
+            payload.events.forEach(event => {
+                if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
+                if (event.type === 'unit-spawn') log(`${players[event.owner]?.name || 'Player'} deployed ${event.unitType}`, players[event.owner]?.color?.main || '#fff');
+            });
+        }
+        const activePlayers = players.filter(p => !p.eliminated);
+        if (players[localPlayerIndex]?.eliminated || activePlayers.length <= 1) {
+            running = false;
+            const overlay = document.getElementById('victory-overlay');
+            const vText = document.getElementById('victory-text');
+            if (overlay && vText) {
+                const won = activePlayers.length === 1 && activePlayers[0].id === localPlayerIndex;
+                overlay.style.display = 'flex';
+                vText.innerText = won ? 'VICTORY' : 'DEFEAT';
+                vText.style.color = won ? 'var(--success)' : 'var(--danger)';
+            }
+        }
+        draw();
     }
 
     async function recordResult(result) {
@@ -1279,6 +1426,7 @@ const Game = (function() {
                 if (p.hp <= 0) {
                     p.eliminated = true;
                     log(`${p.name} HAS BEEN ELIMINATED!`, '#f43f5e');
+                    queueOnlineEvent({ type: 'player-eliminated', playerIndex: i, playerName: p.name });
                 }
             }
         });
@@ -1509,6 +1657,7 @@ const Game = (function() {
             if (units[i].hp <= 0) {
                 const u = units[i];
                 if (u.lastAttacker !== null) addGold(u.lastAttacker, u.meta.cost * 0.3);
+                queueOnlineEvent({ type: 'unit-death', unitId: u.id, unitType: u.type, owner: u.owner, killerOwner: u.lastAttacker, x: u.x, y: u.y });
                 units.splice(i, 1);
             }
         }
@@ -1528,9 +1677,11 @@ const Game = (function() {
             fx.radius += fx.growth;
             if (fx.life <= 0) vfx.splice(i, 1);
         }
+        publishOnlineState();
 
         const activePlayers = players.filter(p => !p.eliminated);
         if (players[localPlayerIndex]?.eliminated || activePlayers.length <= 1) {
+            publishOnlineState(true);
             running = false;
             document.getElementById('victory-overlay').style.display = 'flex';
             const vText = document.getElementById('victory-text');
@@ -2210,8 +2361,13 @@ const Game = (function() {
         if (!running) return;
 
         if (onlineMode) {
+            if (!onlineAuthoritative) {
+                draw();
+                if (running) requestAnimationFrame(loop);
+                return;
+            }
             if (!paused) {
-                const targetFrame = Math.max(0, Math.floor((serverNowMs() - onlineStartsAtServerMs) / FIXED_FRAME_MS) - ONLINE_RENDER_DELAY_FRAMES);
+                const targetFrame = Math.max(0, onlineConfirmedFrame - ONLINE_RENDER_DELAY_FRAMES);
                 let steps = 0;
                 while (running && frameCount < targetFrame && steps < 8) {
                     update();
@@ -2380,10 +2536,15 @@ const Game = (function() {
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
+        onlineAuthoritative = onlineMode && localPlayerIndex === 0;
+        onlineStateSeq = 0;
+        onlineLastPublishedFrame = 0;
+        pendingOnlineEvents = [];
         onlineServerClockOffsetMs = onlineMode && Number.isFinite(Number(options.serverNow))
             ? Number(options.serverNow) - Date.now()
             : 0;
         onlineStartsAtServerMs = onlineMode ? Number(options.startsAt || serverNowMs()) : 0;
+        onlineConfirmedFrame = onlineMode ? Math.max(0, Math.floor(Number(options.confirmedFrame || 0))) : 0;
         if (onlineMode && Array.isArray(options.units)) applyUnitData(options.units);
         setSeed(onlineMode ? options.seed : 1);
         canvas = document.getElementById('gameCanvas'); 
@@ -2492,7 +2653,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, applyOnlineAction, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
+    return { init, buy: buyUnit, applyOnlineAction, applyAuthoritativeState, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
 })();
 
 window.UI = UI;
