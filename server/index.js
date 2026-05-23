@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const MATCH_START_DELAY_MS = 3000;
 const MATCH_TTL_MS = 1000 * 60 * 60;
 const MATCH_FPS = 60;
-const MATCH_ACTION_DELAY_FRAMES = 24;
+const MATCH_ACTION_DELAY_FRAMES = 90;
 const waitingMatches = [];
 const matches = new Map();
 const ADMIN_UNIT_FIELDS = new Set([
@@ -105,14 +105,30 @@ function sendMatchEvent(match, event, payload) {
     match.clients.forEach(client => client.write(data));
 }
 
+function getMatchFrame(match) {
+    if (!match.startsAt) return 0;
+    return Math.max(0, Math.floor((Date.now() - match.startsAt) / 1000 * MATCH_FPS));
+}
+
 function getMatchPayload(match, userId) {
     return {
         matchId: match.id,
         playerIndex: match.players.findIndex(player => player.id === userId),
         players: match.players.map(player => ({ id: player.id, username: player.username })),
         seed: match.seed,
-        startsAt: match.startsAt
+        startsAt: match.startsAt,
+        units: match.units || null
     };
+}
+
+async function getUnitSnapshot() {
+    try {
+        const [units] = await pool.query('SELECT * FROM units ORDER BY id ASC');
+        return units;
+    } catch (err) {
+        console.warn('[Match] Unable to capture unit snapshot:', err.message);
+        return null;
+    }
 }
 
 function removeMatch(matchId) {
@@ -257,7 +273,7 @@ app.post('/api/session/clear', authenticate, asyncHandler(async (req, res) => {
 }));
 
 // --- Online Match Routes ---
-app.post('/api/match/join', authenticate, (req, res) => {
+app.post('/api/match/join', authenticate, asyncHandler(async (req, res) => {
     const user = { id: req.user.id, username: req.user.username };
 
     for (const match of matches.values()) {
@@ -282,15 +298,19 @@ app.post('/api/match/join', authenticate, (req, res) => {
         players: [user],
         clients: new Map(),
         seed: Math.floor(Math.random() * 0xffffffff),
+        units: await getUnitSnapshot(),
         startsAt: null,
         started: false,
         ended: false,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        nextActionId: 1,
+        lastActionFrame: 0,
+        actionLog: []
     };
     matches.set(match.id, match);
     waitingMatches.push(match.id);
     res.json({ status: 'waiting', ...getMatchPayload(match, user.id) });
-});
+}));
 
 app.get('/api/match/stream', (req, res) => {
     let decoded;
@@ -314,6 +334,9 @@ app.get('/api/match/stream', (req, res) => {
 
     if (match.started) {
         res.write(`event: match-start\ndata: ${JSON.stringify(getMatchPayload(match, decoded.id))}\n\n`);
+        (match.actionLog || []).forEach(action => {
+            res.write(`event: match-action\ndata: ${JSON.stringify(action)}\n\n`);
+        });
     }
 
     req.on('close', () => {
@@ -337,15 +360,25 @@ app.post('/api/match/action', authenticate, (req, res) => {
         return res.status(400).json({ message: 'Invalid match action' });
     }
 
-    const elapsedMs = Math.max(0, Date.now() - match.startsAt);
-    const actionFrame = Math.max(1, Math.floor(elapsedMs / 1000 * MATCH_FPS) + MATCH_ACTION_DELAY_FRAMES);
-    sendMatchEvent(match, 'match-action', {
+    const serverFrame = getMatchFrame(match);
+    const actionFrame = Math.max(
+        serverFrame + MATCH_ACTION_DELAY_FRAMES,
+        Number(match.lastActionFrame || 0) + 1
+    );
+    match.lastActionFrame = actionFrame;
+    const actionId = Number(match.nextActionId || 1);
+    const payload = {
+        actionId,
         action: 'buy',
         playerIndex,
         unitType,
         actionFrame,
+        serverFrame,
         sentAt: Date.now()
-    });
+    };
+    match.nextActionId = actionId + 1;
+    match.actionLog = [...(match.actionLog || []), payload].slice(-200);
+    sendMatchEvent(match, 'match-action', payload);
     res.json({ ok: true });
 });
 

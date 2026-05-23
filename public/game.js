@@ -198,6 +198,7 @@ const UI = (function() {
 const Online = (function() {
     let source = null;
     let currentMatchId = null;
+    let activeStartedMatchId = null;
 
     function setStatus(message) {
         const el = document.getElementById('online-status');
@@ -216,13 +217,16 @@ const Online = (function() {
         source.addEventListener('match-start', event => {
             const data = JSON.parse(event.data);
             currentMatchId = data.matchId;
+            if (activeStartedMatchId === data.matchId) return;
+            activeStartedMatchId = data.matchId;
             Game.init(null, {
                 online: true,
                 matchId: data.matchId,
                 playerIndex: data.playerIndex,
                 players: data.players,
                 seed: data.seed,
-                startsAt: data.startsAt
+                startsAt: data.startsAt,
+                units: data.units
             });
         });
         source.addEventListener('match-action', event => {
@@ -283,6 +287,7 @@ const Online = (function() {
             }).catch(() => {});
         }
         currentMatchId = null;
+        activeStartedMatchId = null;
         closeStream();
     }
 
@@ -428,12 +433,14 @@ const Game = (function() {
     let canvas, ctx, running = false, frameCount = 0, paused = false;
     let players = [], units = [], projectiles = [], vfx = [], particles = [], floatingTexts = [], unitsPending = [];
     let aiProcessFlags = [false, false]; 
-    let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1;
+    let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
     let onlineActions = [], simulationStartedAt = 0;
+    let processedOnlineActionIds = new Set();
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
     const MAX_UNITS_PER_PLAYER = 50;
+    const ONLINE_RENDER_DELAY_FRAMES = 45;
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
     const MELEE_BASE_INTERCEPT_DISTANCE = 220;
@@ -472,10 +479,17 @@ const Game = (function() {
     const getTargetRadius = (target) => target.base ? target.base.r : 0;
     const getTargetDistance = (u, target) => dist(u, { x: getTargetX(target), y: getTargetY(target) }) - getTargetRadius(target);
     const getTargetKey = (target) => target.base ? `base-${target.id}` : target.id;
-    const setSeed = (seed) => { rngState = (Number(seed) >>> 0) || 1; };
+    const setSeed = (seed) => {
+        rngState = (Number(seed) >>> 0) || 1;
+        fxRngState = (rngState ^ 0x9e3779b9) >>> 0 || 1;
+    };
     const rng = () => {
         rngState = (rngState * 1664525 + 1013904223) >>> 0;
         return rngState / 0x100000000;
+    };
+    const fxRng = () => {
+        fxRngState = (fxRngState * 1103515245 + 12345) >>> 0;
+        return fxRngState / 0x100000000;
     };
     const isMeleeUnit = (u) => (u.meta?.range || 0) < 35;
     const targetPressure = (target, owner) => {
@@ -775,15 +789,15 @@ const Game = (function() {
 
     function addParticle(x, y, color, count = 8, power = 2) {
         for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
-            const angle = rng() * Math.PI * 2;
-            const speed = rng() * power + 0.4;
+            const angle = fxRng() * Math.PI * 2;
+            const speed = fxRng() * power + 0.4;
             particles.push({
                 x, y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
-                life: 24 + rng() * 24,
+                life: 24 + fxRng() * 24,
                 maxLife: 48,
-                size: 1.5 + rng() * 3,
+                size: 1.5 + fxRng() * 3,
                 color
             });
         }
@@ -1044,10 +1058,7 @@ const Game = (function() {
         setTimeout(() => { aiProcessFlags[pIdx] = false; }, provider === 'hell' ? 900 : 3000);
     }
 
-    async function fetchUnits() {
-        const res = await fetch('/api/units');
-        if (!res.ok) throw new Error('Unable to load units');
-        const data = await res.json();
+    function applyUnitData(data) {
         CLASSES = {};
         data.forEach(u => {
             CLASSES[u.name] = {
@@ -1086,6 +1097,12 @@ const Game = (function() {
                 </div>
             `).join('');
         }
+    }
+
+    async function fetchUnits() {
+        const res = await fetch('/api/units');
+        if (!res.ok) throw new Error('Unable to load units');
+        applyUnitData(await res.json());
     }
 
     async function checkActiveSession() {
@@ -1187,13 +1204,17 @@ const Game = (function() {
 
     function applyOnlineAction(payload) {
         if (!onlineMode || payload?.action !== 'buy') return;
+        const actionId = Number(payload.actionId || 0);
+        if (actionId && processedOnlineActionIds.has(actionId)) return;
+        if (actionId) processedOnlineActionIds.add(actionId);
         onlineActions.push({
+            actionId,
             action: payload.action,
             playerIndex: Number(payload.playerIndex),
             unitType: payload.unitType,
             actionFrame: Number(payload.actionFrame || frameCount + 1)
         });
-        onlineActions.sort((a, b) => a.actionFrame - b.actionFrame || a.playerIndex - b.playerIndex || String(a.unitType).localeCompare(String(b.unitType)));
+        onlineActions.sort((a, b) => a.actionFrame - b.actionFrame || a.actionId - b.actionId || a.playerIndex - b.playerIndex || String(a.unitType).localeCompare(String(b.unitType)));
     }
 
     function processOnlineActions() {
@@ -2172,7 +2193,7 @@ const Game = (function() {
 
         if (onlineMode) {
             if (!paused) {
-                const targetFrame = Math.max(0, Math.floor((now - simulationStartedAt) / FIXED_FRAME_MS));
+                const targetFrame = Math.max(0, Math.floor((now - simulationStartedAt) / FIXED_FRAME_MS) - ONLINE_RENDER_DELAY_FRAMES);
                 let steps = 0;
                 while (running && frameCount < targetFrame && steps < 8) {
                     update();
@@ -2341,6 +2362,7 @@ const Game = (function() {
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
+        if (onlineMode && Array.isArray(options.units)) applyUnitData(options.units);
         setSeed(onlineMode ? options.seed : 1);
         canvas = document.getElementById('gameCanvas'); 
         canvas.width = MAP_W;
@@ -2356,6 +2378,7 @@ const Game = (function() {
         floatingTexts = [];
         unitsPending = [];
         onlineActions = [];
+        processedOnlineActionIds = new Set();
         
         const dash = document.getElementById('dashboard'); 
         dash.innerHTML = '';
