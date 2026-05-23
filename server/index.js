@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
 const path = require('path');
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const pool = require('./db');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
@@ -117,7 +117,7 @@ function sendMatchEvent(match, event, payload) {
     match.clients.forEach(client => client.write(data));
     const wsData = JSON.stringify({ event, payload });
     (match.wsClients || new Map()).forEach(socket => {
-        if (socket.readyState === socket.OPEN) socket.send(wsData);
+        if (socket.readyState === WebSocket.OPEN) socket.send(wsData);
     });
 }
 
@@ -134,7 +134,7 @@ function sendMatchEventToPlayer(match, userId, event, payload) {
     const client = match.clients.get(userId);
     if (client) client.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     const socket = match.wsClients?.get(userId);
-    if (socket?.readyState === socket.OPEN) socket.send(JSON.stringify({ event, payload }));
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ event, payload }));
 }
 
 function getServerBaseForPlayer(idx) {
