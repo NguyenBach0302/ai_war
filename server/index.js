@@ -438,12 +438,13 @@ app.post('/api/match/state', authenticate, (req, res) => {
         return res.json({ ok: true, ignored: true });
     }
 
+    const realtimeEvents = events.filter(event => event?.type !== 'damage').slice(-50);
     const payload = {
         seq,
         frame,
         serverNow: Date.now(),
         state,
-        events
+        events: realtimeEvents
     };
     match.stateSeq = seq;
     match.stateSnapshot = payload;
@@ -456,7 +457,9 @@ app.post('/api/match/state', authenticate, (req, res) => {
             serverAt: payload.serverNow
         }))];
     }
-    sendMatchEvent(match, 'match-state', payload);
+    match.players.forEach((player, idx) => {
+        if (idx !== 0) sendMatchEventToPlayer(match, player.id, 'match-state', payload);
+    });
     res.json({ ok: true });
 });
 

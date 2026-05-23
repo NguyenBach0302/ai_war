@@ -442,7 +442,7 @@ const Game = (function() {
     let players = [], units = [], projectiles = [], vfx = [], particles = [], floatingTexts = [], unitsPending = [];
     let aiProcessFlags = [false, false]; 
     let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
-    let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0;
+    let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0, onlinePublishInFlight = false;
     let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0, onlineConfirmedFrame = 0;
     let processedOnlineActionIds = new Set();
     let pendingOnlineEvents = [];
@@ -1311,18 +1311,20 @@ const Game = (function() {
                 icemanPassiveTriggered: !!u.icemanPassiveTriggered,
                 chilyProtectionTriggered: !!u.chilyProtectionTriggered
             })),
-            projectiles: projectiles.map(pr => ({ ...pr })),
-            vfx: vfx.map(fx => ({ ...fx })),
-            floatingTexts: floatingTexts.map(t => ({ ...t }))
+            projectiles: [],
+            vfx: [],
+            floatingTexts: []
         };
     }
 
     function publishOnlineState(force = false) {
         if (!onlineMode || !onlineAuthoritative || !onlineMatchId) return;
-        if (!force && frameCount - onlineLastPublishedFrame < 6 && pendingOnlineEvents.length === 0) return;
+        if (onlinePublishInFlight && !force) return;
+        if (!force && frameCount - onlineLastPublishedFrame < 8 && pendingOnlineEvents.length === 0) return;
         onlineLastPublishedFrame = frameCount;
         const events = pendingOnlineEvents.splice(0, pendingOnlineEvents.length);
         const seq = ++onlineStateSeq;
+        onlinePublishInFlight = true;
         fetch('/api/match/state', {
             method: 'POST',
             headers: {
@@ -1336,7 +1338,7 @@ const Game = (function() {
                 state: serializeOnlineState(),
                 events
             })
-        }).catch(() => {});
+        }).catch(() => {}).finally(() => { onlinePublishInFlight = false; });
     }
 
     function applyAuthoritativeState(payload) {
@@ -1365,9 +1367,9 @@ const Game = (function() {
             meta: { ...CLASSES[u.type] },
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
-        projectiles = Array.isArray(state.projectiles) ? state.projectiles.map(pr => ({ ...pr })) : [];
-        vfx = Array.isArray(state.vfx) ? state.vfx.map(fx => ({ ...fx })) : [];
-        floatingTexts = Array.isArray(state.floatingTexts) ? state.floatingTexts.map(t => ({ ...t })) : [];
+        projectiles = [];
+        vfx = [];
+        floatingTexts = [];
         if (Array.isArray(payload.events)) {
             payload.events.forEach(event => {
                 if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
@@ -2539,6 +2541,7 @@ const Game = (function() {
         onlineAuthoritative = onlineMode && localPlayerIndex === 0;
         onlineStateSeq = 0;
         onlineLastPublishedFrame = 0;
+        onlinePublishInFlight = false;
         pendingOnlineEvents = [];
         onlineServerClockOffsetMs = onlineMode && Number.isFinite(Number(options.serverNow))
             ? Number(options.serverNow) - Date.now()
