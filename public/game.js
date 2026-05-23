@@ -245,6 +245,10 @@ const Online = (function() {
             Game.applyAuthoritativeState(payload);
             return;
         }
+        if (eventName === 'match-visual') {
+            Game.applyServerVisual(payload);
+            return;
+        }
         if (eventName === 'command-result') {
             if (payload?.state) Game.applyAuthoritativeState(payload.state);
             if (payload?.ok === false) setStatus(payload.message || 'Command rejected.');
@@ -282,6 +286,7 @@ const Online = (function() {
             source.addEventListener('match-action', event => handleRealtimeEvent('match-action', JSON.parse(event.data)));
             source.addEventListener('match-sync', event => handleRealtimeEvent('match-sync', JSON.parse(event.data)));
             source.addEventListener('match-state', event => handleRealtimeEvent('match-state', JSON.parse(event.data)));
+            source.addEventListener('match-visual', event => handleRealtimeEvent('match-visual', JSON.parse(event.data)));
             source.addEventListener('player-disconnected', event => handleRealtimeEvent('player-disconnected', JSON.parse(event.data || '{}')));
             source.addEventListener('match-ended', event => handleRealtimeEvent('match-ended', JSON.parse(event.data || '{}')));
             source.onerror = () => setStatus('Online connection interrupted. Reconnecting...');
@@ -1493,6 +1498,11 @@ const Game = (function() {
             visualOnly: true,
             life: 90
         });
+    }
+
+    function applyServerVisual(event) {
+        if (!event || !onlineMode) return;
+        if (event.type === 'projectile') spawnClientProjectile(event);
     }
 
     function updateClientProjectiles() {
@@ -2777,7 +2787,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
 })();
 
 window.UI = UI;

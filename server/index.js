@@ -309,7 +309,7 @@ function spawnServerUnit(match, playerIndex, unitType) {
         x: player.base.x + dir * (player.base.r + 14),
         y: SERVER_LANE_Y,
         cooldown: 0,
-        skillCooldown: 0,
+        skillCooldown: 30,
         state: 'march',
         animAction: 'idle',
         animStartedAt: sim.frame,
@@ -370,7 +370,7 @@ function addServerProjectileVisual(match, unit, target, skill = null) {
     const sim = match.sim;
     if (!sim) return;
     const point = getServerTargetPoint(target);
-    sim.pendingVisualEvents.push({
+    const event = {
         type: 'projectile',
         id: `pv${sim.frame}_${sim.pendingVisualEvents.length}_${unit.id}`,
         frame: sim.frame,
@@ -389,7 +389,9 @@ function addServerProjectileVisual(match, unit, target, skill = null) {
         dmgType: unit.meta.dmg_type || 'physical',
         sprite: getServerProjectileSprite(unit, skill),
         explosionRadius: skill === 'grenade' ? 28 : 0
-    });
+    };
+    sim.pendingVisualEvents.push(event);
+    sendMatchEvent(match, 'match-visual', event);
 }
 
 function applyServerAreaDamage(match, unit, center, radius, amount, damageType, label) {
@@ -498,9 +500,9 @@ function updateServerSim(match) {
     sim.units.forEach(unit => {
         if (unit.cooldown > 0) unit.cooldown -= 1;
         if (unit.skillCooldown > 0) unit.skillCooldown -= 1;
-        if (sim.frame % MATCH_FPS === 0) {
+        if (sim.frame % 30 === 0) {
             unit.hp = Math.min(unit.maxHp, unit.hp + 1);
-            unit.mana = Math.min(unit.maxMana, unit.mana + 5);
+            unit.mana = Math.min(unit.maxMana, unit.mana + 8);
         }
         if (unit.frozenUntil && unit.frozenUntil > sim.frame) {
             unit.state = 'frozen';
