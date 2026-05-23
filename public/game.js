@@ -433,10 +433,15 @@ const Game = (function() {
     const MAX_UNITS_PER_PLAYER = 50;
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
+    const MIN_CAMERA_ZOOM = 0.55;
+    const MAX_CAMERA_ZOOM = 1.8;
+    const CAMERA_ZOOM_STEP = 0.1;
 
     let lastActiveState = null;
     let mousePos = { x: 0, y: 0 };
     let hudResizeListenerAttached = false;
+    let cameraWheelListenerAttached = false;
+    let cameraZoom = Math.max(MIN_CAMERA_ZOOM, Math.min(MAX_CAMERA_ZOOM, Number(localStorage.getItem('cameraZoom')) || 1));
 
     const TILE = 20;
     const laneOffsets = [-18, -8, 8, 18, -28, 28];
@@ -2114,6 +2119,53 @@ const Game = (function() {
         requestAnimationFrame(updateDeploymentHudPosition);
     }
 
+    function getCameraScrollCenter(wrap) {
+        return {
+            x: (wrap.scrollLeft + wrap.clientWidth / 2) / Math.max(1, wrap.scrollWidth),
+            y: (wrap.scrollTop + wrap.clientHeight / 2) / Math.max(1, wrap.scrollHeight)
+        };
+    }
+
+    function updateCameraZoomLabel() {
+        const label = document.getElementById('camera-zoom-label');
+        if (label) label.textContent = `${Math.round(cameraZoom * 100)}%`;
+    }
+
+    function applyCameraZoom(center = null) {
+        const wrap = document.getElementById('map-wrap');
+        const scrollCenter = center || (wrap ? getCameraScrollCenter(wrap) : null);
+        document.documentElement.style.setProperty('--camera-zoom', cameraZoom.toFixed(2));
+        updateCameraZoomLabel();
+        localStorage.setItem('cameraZoom', cameraZoom.toFixed(2));
+
+        if (wrap && scrollCenter) {
+            requestAnimationFrame(() => {
+                wrap.scrollLeft = Math.max(0, scrollCenter.x * wrap.scrollWidth - wrap.clientWidth / 2);
+                wrap.scrollTop = Math.max(0, scrollCenter.y * wrap.scrollHeight - wrap.clientHeight / 2);
+                updateDeploymentHudPosition();
+            });
+            return;
+        }
+        requestAnimationFrame(updateDeploymentHudPosition);
+    }
+
+    function setCameraZoom(value) {
+        const wrap = document.getElementById('map-wrap');
+        const center = wrap ? getCameraScrollCenter(wrap) : null;
+        cameraZoom = clamp(Number(value) || 1, MIN_CAMERA_ZOOM, MAX_CAMERA_ZOOM);
+        applyCameraZoom(center);
+    }
+
+    function zoomCamera(delta) {
+        setCameraZoom(Math.round((cameraZoom + delta) / CAMERA_ZOOM_STEP) * CAMERA_ZOOM_STEP);
+    }
+
+    function handleCameraWheel(e) {
+        if (!e.ctrlKey && !e.metaKey) return;
+        e.preventDefault();
+        zoomCamera(e.deltaY > 0 ? -CAMERA_ZOOM_STEP : CAMERA_ZOOM_STEP);
+    }
+
     function updateDeploymentHudPosition() {
         const wrap = document.getElementById('map-wrap');
         const hud = document.getElementById('deployment-hud');
@@ -2206,6 +2258,11 @@ const Game = (function() {
         updateUnitButtons();
         const mapWrap = document.getElementById('map-wrap');
         if (mapWrap) mapWrap.onscroll = updateDeploymentHudPosition;
+        applyCameraZoom();
+        if (mapWrap && !cameraWheelListenerAttached) {
+            mapWrap.addEventListener('wheel', handleCameraWheel, { passive: false });
+            cameraWheelListenerAttached = true;
+        }
         if (!hudResizeListenerAttached) {
             window.addEventListener('resize', updateDeploymentHudPosition, { passive: true });
             window.visualViewport?.addEventListener('resize', updateDeploymentHudPosition, { passive: true });
@@ -2253,7 +2310,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, applyOnlineAction, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera };
+    return { init, buy: buyUnit, applyOnlineAction, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
 })();
 
 window.UI = UI;
