@@ -187,6 +187,7 @@ function createServerSim(match) {
         })),
         units: [],
         projectiles: [],
+        pendingVisualEvents: [],
         eventHistory: []
     };
 }
@@ -229,11 +230,11 @@ function serializeServerSim(match) {
                 animAction: unit.animAction,
                 animStartedAt: unit.animStartedAt
             })),
-            projectiles: sim.projectiles.map(projectile => ({ ...projectile })),
+            projectiles: [],
             vfx: [],
             floatingTexts: []
         },
-        events: []
+        events: sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length)
     };
 }
 
@@ -369,8 +370,14 @@ function addServerProjectileVisual(match, unit, target, skill = null) {
     const sim = match.sim;
     if (!sim) return;
     const point = getServerTargetPoint(target);
-    sim.projectiles.push({
-        id: `p${sim.frame}_${sim.projectiles.length}_${unit.id}`,
+    sim.pendingVisualEvents.push({
+        type: 'projectile',
+        id: `pv${sim.frame}_${sim.pendingVisualEvents.length}_${unit.id}`,
+        frame: sim.frame,
+        attackerId: unit.id,
+        attackerType: unit.type,
+        targetId: target.id ?? `base-${target.id}`,
+        targetType: target.type || 'Base',
         x: unit.x,
         y: unit.y - 8,
         tx: point.x,
@@ -381,9 +388,7 @@ function addServerProjectileVisual(match, unit, target, skill = null) {
         color: unit.owner === 0 ? '#38bdf8' : '#fbbf24',
         dmgType: unit.meta.dmg_type || 'physical',
         sprite: getServerProjectileSprite(unit, skill),
-        explosionRadius: skill === 'grenade' ? 28 : 0,
-        visualOnly: true,
-        life: 45
+        explosionRadius: skill === 'grenade' ? 28 : 0
     });
 }
 
@@ -484,19 +489,6 @@ function updateServerSim(match) {
     sim.players.forEach(player => {
         if (!player.eliminated) player.gold += SERVER_GOLD_RATE;
     });
-
-    for (let i = sim.projectiles.length - 1; i >= 0; i--) {
-        const projectile = sim.projectiles[i];
-        const distance = serverDist(projectile, { x: projectile.tx, y: projectile.ty });
-        if (distance <= Math.max(8, projectile.speed) || projectile.life <= 0) {
-            sim.projectiles.splice(i, 1);
-            continue;
-        }
-        const angle = Math.atan2(projectile.ty - projectile.y, projectile.tx - projectile.x);
-        projectile.x += Math.cos(angle) * projectile.speed;
-        projectile.y += Math.sin(angle) * projectile.speed;
-        projectile.life -= 1;
-    }
 
     while (sim.commands.length) {
         const command = sim.commands.shift();

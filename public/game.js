@@ -1451,13 +1451,13 @@ const Game = (function() {
             meta: { ...CLASSES[u.type] },
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
-        projectiles = Array.isArray(state.projectiles) ? state.projectiles.map(pr => ({ ...pr })) : [];
         vfx = [];
         floatingTexts = [];
         if (Array.isArray(payload.events)) {
             payload.events.forEach(event => {
                 if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
                 if (event.type === 'unit-spawn') log(`${players[event.owner]?.name || 'Player'} deployed ${event.unitType}`, players[event.owner]?.color?.main || '#fff');
+                if (event.type === 'projectile') spawnClientProjectile(event);
             });
         }
         const activePlayers = players.filter(p => !p.eliminated);
@@ -1473,6 +1473,42 @@ const Game = (function() {
             }
         }
         draw();
+    }
+
+    function spawnClientProjectile(event) {
+        if (projectiles.some(pr => pr.id === event.id)) return;
+        projectiles.push({
+            id: event.id,
+            x: Number(event.x || 0),
+            y: Number(event.y || 0),
+            tx: Number(event.tx || 0),
+            ty: Number(event.ty || 0),
+            owner: Number(event.owner || 0),
+            dmg: Number(event.dmg || 0),
+            speed: Number(event.speed || 8),
+            color: event.color || players[event.owner]?.color?.main || '#fff',
+            dmgType: event.dmgType || 'physical',
+            sprite: event.sprite || null,
+            explosionRadius: Number(event.explosionRadius || 0),
+            visualOnly: true,
+            life: 90
+        });
+    }
+
+    function updateClientProjectiles() {
+        for (let i = projectiles.length - 1; i >= 0; i--) {
+            const pr = projectiles[i];
+            const d = dist(pr, { x: pr.tx, y: pr.ty });
+            if (d < Math.max(8, pr.speed || 8) || pr.life <= 0) {
+                if (pr.explosionRadius) spawnExplosion(pr.tx, pr.ty, pr.owner, pr.explosionRadius);
+                projectiles.splice(i, 1);
+                continue;
+            }
+            const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
+            pr.x += Math.cos(angle) * (pr.speed || 8);
+            pr.y += Math.sin(angle) * (pr.speed || 8);
+            pr.life--;
+        }
     }
 
     async function recordResult(result) {
@@ -2448,6 +2484,7 @@ const Game = (function() {
 
         if (onlineMode) {
             if (!onlineAuthoritative) {
+                updateClientProjectiles();
                 draw();
                 if (running) requestAnimationFrame(loop);
                 return;
