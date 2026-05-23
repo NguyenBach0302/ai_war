@@ -273,7 +273,7 @@ const Online = (function() {
 
     async function sendBuy(unitType) {
         if (!currentMatchId) return;
-        await fetch('/api/match/action', {
+        const res = await fetch('/api/match/action', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -281,6 +281,10 @@ const Online = (function() {
             },
             body: JSON.stringify({ matchId: currentMatchId, type: 'buy', unitType })
         });
+        if (res.ok) {
+            const data = await res.json().catch(() => null);
+            if (data?.state) Game.applyAuthoritativeState(data.state);
+        }
     }
 
     function leave() {

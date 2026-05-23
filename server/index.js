@@ -17,7 +17,7 @@ const MATCH_START_DELAY_MS = 3000;
 const MATCH_TTL_MS = 1000 * 60 * 60;
 const MATCH_FPS = 60;
 const MATCH_ACTION_DELAY_FRAMES = 0;
-const MATCH_BROADCAST_EVERY_FRAMES = 3;
+const MATCH_BROADCAST_EVERY_FRAMES = 2;
 const SERVER_GOLD_RATE = 0.15;
 const SERVER_MAP_W = 2400;
 const SERVER_LANE_Y = 382;
@@ -653,9 +653,19 @@ app.post('/api/match/action', authenticate, (req, res) => {
     };
     match.nextActionId = actionId + 1;
     match.actionLog = [...(match.actionLog || []), payload].slice(-200);
-    if (match.sim) match.sim.commands.push({ type: 'buy', playerIndex, unitType, frame: actionFrame });
+    let statePayload = null;
+    if (match.sim) {
+        const spawned = spawnServerUnit(match, playerIndex, unitType);
+        if (spawned) {
+            match.sim.seq += 1;
+            statePayload = serializeServerSim(match);
+            match.stateSeq = statePayload.seq;
+            match.stateSnapshot = statePayload;
+            sendMatchEvent(match, 'match-state', statePayload);
+        }
+    }
     sendMatchEvent(match, 'match-action', payload);
-    res.json({ ok: true });
+    res.json({ ok: true, state: statePayload });
 });
 
 app.post('/api/match/state', authenticate, (req, res) => {
