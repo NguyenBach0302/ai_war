@@ -273,6 +273,7 @@ const Online = (function() {
 
     async function sendBuy(unitType) {
         if (!currentMatchId) return;
+        Game.previewOnlineBuy(unitType);
         const res = await fetch('/api/match/action', {
             method: 'POST',
             headers: {
@@ -1267,6 +1268,43 @@ const Game = (function() {
             const next = onlineActions.shift();
             if (next.action === 'buy') spawnUnit(next.playerIndex, next.unitType);
         }
+    }
+
+    function previewOnlineBuy(unitType) {
+        if (!onlineMode || !CLASSES[unitType]) return;
+        const localPlayer = players[localPlayerIndex];
+        const meta = CLASSES[unitType];
+        if (!localPlayer || localPlayer.gold < meta.cost) return;
+        const ownedCount = units.filter(u => u.owner === localPlayerIndex).length;
+        if (ownedCount >= MAX_UNITS_PER_PLAYER) return;
+        const spawn = getSpawnPoint(localPlayerIndex, ownedCount);
+        const previewUnit = {
+            id: `preview_${localPlayerIndex}_${Date.now()}`,
+            owner: localPlayerIndex,
+            type: unitType,
+            meta: { ...meta },
+            hp: meta.hp,
+            maxHp: meta.hp,
+            mana: 0,
+            maxMana: meta.mana,
+            x: spawn.x,
+            y: spawn.y,
+            laneY: spawn.y,
+            cooldown: 0,
+            state: 'march',
+            radius: 12,
+            buffs: [],
+            isPet: false,
+            untargetableTimer: 0,
+            facing: localPlayerIndex === 0 ? 'right' : 'left',
+            blockTimer: 0,
+            preview: true
+        };
+        localPlayer.gold -= meta.cost;
+        const goldEl = document.getElementById(`gold-${localPlayerIndex}`);
+        if (goldEl) goldEl.innerText = `$ ${Math.floor(localPlayer.gold)}`;
+        units.push(previewUnit);
+        draw();
     }
 
     function queueOnlineEvent(event) {
@@ -2660,7 +2698,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, applyOnlineAction, applyAuthoritativeState, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
 })();
 
 window.UI = UI;
