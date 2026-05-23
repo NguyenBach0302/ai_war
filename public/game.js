@@ -1490,12 +1490,18 @@ const Game = (function() {
 
     function spawnClientProjectile(event) {
         if (projectiles.some(pr => pr.id === event.id)) return;
+        const x = Number(event.x || 0);
+        const y = Number(event.y || 0);
+        const tx = Number(event.tx || 0);
+        const ty = Number(event.ty || 0);
         projectiles.push({
             id: event.id,
-            x: Number(event.x || 0),
-            y: Number(event.y || 0),
-            tx: Number(event.tx || 0),
-            ty: Number(event.ty || 0),
+            x,
+            y,
+            tx,
+            ty,
+            startX: x,
+            startY: y,
             owner: Number(event.owner || 0),
             dmg: Number(event.dmg || 0),
             speed: Number(event.speed || 8),
@@ -1503,6 +1509,7 @@ const Game = (function() {
             dmgType: event.dmgType || 'physical',
             sprite: event.sprite || null,
             explosionRadius: Number(event.explosionRadius || 0),
+            trail: [{ x, y }],
             visualOnly: true,
             life: 90
         });
@@ -1522,10 +1529,18 @@ const Game = (function() {
             const d = dist(pr, { x: pr.tx, y: pr.ty });
             if (d < Math.max(8, pr.speed || 8) || pr.life <= 0) {
                 if (pr.explosionRadius) spawnExplosion(pr.tx, pr.ty, pr.owner, pr.explosionRadius);
+                else {
+                    const impactColor = pr.heal ? '#22c55e' : (pr.dmgType === 'magic' ? '#a78bfa' : pr.color);
+                    spawnImpact(pr.tx, pr.ty, impactColor, pr.dmgType === 'magic' ? 24 : 18);
+                    addParticle(pr.tx, pr.ty, impactColor, pr.dmgType === 'magic' ? 10 : 6, 2.2);
+                }
                 projectiles.splice(i, 1);
                 continue;
             }
             const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
+            if (!Array.isArray(pr.trail)) pr.trail = [];
+            pr.trail.push({ x: pr.x, y: pr.y });
+            if (pr.trail.length > 8) pr.trail.shift();
             pr.x += Math.cos(angle) * (pr.speed || 8);
             pr.y += Math.sin(angle) * (pr.speed || 8);
             pr.life--;
@@ -1535,6 +1550,15 @@ const Game = (function() {
             fx.life--;
             fx.radius += fx.growth;
             if (fx.life <= 0) vfx.splice(i, 1);
+        }
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.95;
+            p.vy *= 0.95;
+            p.life--;
+            if (p.life <= 0) particles.splice(i, 1);
         }
     }
 
@@ -1583,6 +1607,23 @@ const Game = (function() {
 
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const pr = projectiles[i];
+            if (pr.visualOnly) {
+                const d = dist(pr, { x: pr.tx, y: pr.ty });
+                if (d < Math.max(8, pr.speed || 8) || pr.life <= 0) {
+                    if (pr.explosionRadius) spawnExplosion(pr.tx, pr.ty, pr.owner, pr.explosionRadius);
+                    else spawnImpact(pr.tx, pr.ty, pr.dmgType === 'magic' ? '#a78bfa' : pr.color, 18);
+                    projectiles.splice(i, 1);
+                    continue;
+                }
+                const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
+                if (!Array.isArray(pr.trail)) pr.trail = [];
+                pr.trail.push({ x: pr.x, y: pr.y });
+                if (pr.trail.length > 8) pr.trail.shift();
+                pr.x += Math.cos(angle) * (pr.speed || 8);
+                pr.y += Math.sin(angle) * (pr.speed || 8);
+                pr.life--;
+                continue;
+            }
             const d = dist(pr, { x: pr.tx, y: pr.ty });
             if (d < 10) {
                 if (pr.heal) {
@@ -2437,6 +2478,22 @@ const Game = (function() {
             const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
             const x = Math.round(pr.x);
             const y = Math.round(pr.y);
+            if (Array.isArray(pr.trail) && pr.trail.length > 1) {
+                const trailColor = pr.heal ? '#86efac' : (pr.dmgType === 'magic' ? '#c4b5fd' : pr.color);
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                for (let i = 1; i < pr.trail.length; i++) {
+                    const a = i / pr.trail.length;
+                    ctx.globalAlpha = 0.08 + a * 0.28;
+                    ctx.strokeStyle = trailColor;
+                    ctx.lineWidth = pr.sprite === 'grenade' || pr.sprite === 'chily_big' ? 5 : 3;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.round(pr.trail[i - 1].x), Math.round(pr.trail[i - 1].y));
+                    ctx.lineTo(Math.round(pr.trail[i].x), Math.round(pr.trail[i].y));
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
+            }
             if (pr.sprite === 'arrow' && isSpriteReady(SPRITES.bowman.arrow)) {
                 ctx.translate(x, y);
                 ctx.rotate(angle);
