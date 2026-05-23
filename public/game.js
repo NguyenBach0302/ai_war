@@ -161,10 +161,10 @@ const Auth = (function() {
         if (authNavBtns) authNavBtns.style.display = 'none';
 
         const adminBtnHtml = currentUser.role === 0 ? `<button onclick="Admin.show()" class="admin-badge">ADMIN</button>` : '';
-        const adminSetupBtnHtml = currentUser.role === 0 ? `<button class="buy-btn" style="background: var(--accent); color: black;" onclick="Admin.show()">Admin Console</button>` : '';
+        const adminSetupBtnHtml = currentUser.role === 0 ? `<button class="buy-btn" onclick="Admin.show()">Admin Console</button>` : '';
 
         info.innerHTML = `
-            <span>Welcome, <strong>${escapeHtml(currentUser.username)}</strong></span>
+            <span>Commander <strong>${escapeHtml(currentUser.username)}</strong></span>
             ${adminBtnHtml}
             <span class="status-item">💰 ${currentUser.gold}</span>
             <span class="status-item">🏆 ${currentUser.wins}W / ${currentUser.losses}L</span>
