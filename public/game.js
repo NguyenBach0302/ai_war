@@ -844,9 +844,17 @@ const Game = (function() {
         spawnVFX(u.x, u.y - 24, 'PROTECTION!', '#fda4af');
     }
 
+    function addGold(playerIndex, amount) {
+        const player = players[playerIndex];
+        if (!player || !Number.isFinite(amount) || amount <= 0) return;
+        player.gold += amount;
+        const goldEl = document.getElementById(`gold-${playerIndex}`);
+        if (goldEl) goldEl.innerText = `$ ${Math.floor(player.gold)}`;
+    }
+
     function triggerChilyGirlPunch(u) {
         if (u.hp <= 0) return;
-        const dir = 1;
+        const dir = getForwardDir(u.owner);
         const punchRange = 115;
         const punchHalfHeight = 42;
         const punchDamage = u.meta.dmg * 10;
@@ -1227,7 +1235,7 @@ const Game = (function() {
                 if (u.type === 'Assassin') { let farthest = null, maxD = 0; const avoidGuard = u.hp / getEffectiveMaxHp(u) > 0.5; units.forEach(en => { if(en.owner !== u.owner && en.untargetableTimer <= 0 && dist(u, en) < 300 && !(avoidGuard && en.type === 'Guard')) { if(dist(u, en) > maxD) { maxD = dist(u, en); farthest = en; } } }); if (farthest) { const fromX = u.x, fromY = u.y; const dashFacing = facingFromVector(farthest.x - fromX, farthest.y - fromY, u.facing); const side = dashFacing === 'left' ? 1 : -1; u.mana = 0; u.x = farthest.x + side * (u.radius + farthest.radius + 2); u.y = farthest.y; u.currentTargetKey = getTargetKey(farthest); u.nextAttack3 = true; u.state = 'fight'; u.facing = dashFacing; u.buffs.push({ type: 'crit_chance', value: 0.5, duration: 180 }, { type: 'dodge', value: 0.5, duration: 180 }, { type: 'lifesteal', value: 0.5, duration: 180 }); spawnVFX(u.x, u.y, 'DASH!', '#f43f5e'); } }
                 else if (u.type.toLowerCase().includes('gunman') || u.type.toLowerCase().includes('gunner')) { let bombTarget = null, minBombDist = Infinity; const skillRange = u.meta.range * 2; units.forEach(en => { if (en.owner !== u.owner && en.untargetableTimer <= 0) { const d = dist(u, en); if (d <= skillRange && d < minBombDist) { minBombDist = d; bombTarget = en; } } }); players.forEach(p => { if (!p.eliminated && p.id !== u.owner) { const d = dist(u, p.base) - p.base.r; if (d <= skillRange && d < minBombDist) { minBombDist = d; bombTarget = p; } } }); if (bombTarget) { const tx = bombTarget.base ? bombTarget.base.x : bombTarget.x, ty = bombTarget.base ? bombTarget.base.y : bombTarget.y; u.mana = 0; startUnitAction(u, 'attack'); u.facing = facingFromVector(tx - u.x, ty - u.y, u.facing); projectiles.push({ x: u.x, y: u.y - 18, tx, ty, owner: u.owner, dmg: u.meta.dmg, speed: 6, color: players[u.owner].color.main, dmgType: 'physical', attackerMeta: u.meta, attackerBuffs: [...u.buffs], attackerId: u.id, sprite: 'grenade', explosionRadius: 20 }); spawnVFX(u.x, u.y - 22, 'BOMB!', '#f97316'); } }
                 else if (u.state === 'fight' && u.type === 'Guard') { u.mana = 0; startUnitAction(u, 'protect'); u.buffs.push({ type: 'statue', duration: 480, origX: u.x, origY: u.y }, { type: 'max_hp_mult', value: 1.5, duration: 480 }, { type: 'armor', value: 50, duration: 480 }, { type: 'mres', value: 50, duration: 480 }, { type: 'no_mana_regen', duration: 480 }); u.hp = Math.min(getEffectiveMaxHp(u), u.hp + u.maxHp * 0.5); spawnVFX(u.x, u.y, 'PROTECT!', '#94a3b8'); }
-                else if (u.state === 'fight' && u.type === 'Mage') { let targets = units.filter(en => en.owner !== u.owner && dist(u, en) < 35); if (targets.length > 0) { u.mana = 0; targets.forEach(en => { const dmgRes = calculateDamage(u, en, 60, 'true'); en.hp -= dmgRes.amount; if (en.hp <= 0) u.mana = Math.min(u.maxMana, u.mana + 5); spawnVFX(en.x, en.y, Math.floor(dmgRes.amount), '#f97316'); }); spawnVFX(u.x, u.y, 'FIRE!', '#f97316'); } }
+                else if (u.state === 'fight' && u.type === 'Mage') { let targets = units.filter(en => en.owner !== u.owner && dist(u, en) < 35); if (targets.length > 0) { u.mana = 0; targets.forEach(en => { const dmgRes = calculateDamage(u, en, 60, 'true'); en.hp -= dmgRes.amount; en.lastAttacker = u.owner; if (en.hp <= 0) u.mana = Math.min(u.maxMana, u.mana + 5); spawnVFX(en.x, en.y, Math.floor(dmgRes.amount), '#f97316'); }); spawnVFX(u.x, u.y, 'FIRE!', '#f97316'); } }
             }
             if (u.type === 'Healer') {
                 let healTarget = null, healDist = Infinity;
@@ -1294,6 +1302,7 @@ const Game = (function() {
                             }
                             const ls = u.meta.lifesteal + (u.buffs.find(b => b.type === 'lifesteal')?.value || 0);
                             const res = calculateDamage(u, target, u.meta.dmg, u.meta.dmg_type);
+                            if (!res.dodged && !target.base) target.lastAttacker = u.owner;
                             if (res.dodged) spawnVFX(tx, ty, 'MISS', '#94a3b8');
                             else { target.hp -= res.amount; addParticle(tx, ty, res.isCrit ? '#ef4444' : players[u.owner].color.main, res.isCrit ? 14 : 7, res.isCrit ? 3 : 1.8); if (ls > 0) { const h = res.amount * ls; u.hp = Math.min(getEffectiveMaxHp(u), u.hp + h); spawnVFX(u.x, u.y, `+${Math.floor(h)}`, '#22c55e'); } spawnVFX(tx, ty, (res.isCrit?'💥':'')+Math.floor(res.amount), res.isCrit?'#ff0000':'#fff'); }
                         } else {
@@ -1341,7 +1350,7 @@ const Game = (function() {
         for (let i = units.length - 1; i >= 0; i--) {
             if (units[i].hp <= 0) {
                 const u = units[i];
-                if (u.lastAttacker !== null && players[u.lastAttacker]) players[u.lastAttacker].gold += u.meta.cost * 0.3;
+                if (u.lastAttacker !== null) addGold(u.lastAttacker, u.meta.cost * 0.3);
                 units.splice(i, 1);
             }
         }
