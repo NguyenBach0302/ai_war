@@ -186,6 +186,7 @@ function createServerSim(match) {
             base: getServerBaseForPlayer(idx)
         })),
         units: [],
+        projectiles: [],
         eventHistory: []
     };
 }
@@ -228,7 +229,7 @@ function serializeServerSim(match) {
                 animAction: unit.animAction,
                 animStartedAt: unit.animStartedAt
             })),
-            projectiles: [],
+            projectiles: sim.projectiles.map(projectile => ({ ...projectile })),
             vfx: [],
             floatingTexts: []
         },
@@ -353,6 +354,39 @@ function getServerAttackAnim(unit) {
     return 'attack';
 }
 
+function getServerProjectileSprite(unit, skill = null) {
+    const type = String(unit.type || '').toLowerCase();
+    if (skill === 'grenade') return 'grenade';
+    if (type.includes('bowman')) return 'arrow';
+    if (type.includes('mage')) return 'mage_charge';
+    if (type.includes('healer')) return 'healer_fire_1';
+    if (type.includes('iceman')) return 'iceman_magic_arrow';
+    if (type.includes('chilygirl')) return 'chily';
+    return null;
+}
+
+function addServerProjectileVisual(match, unit, target, skill = null) {
+    const sim = match.sim;
+    if (!sim) return;
+    const point = getServerTargetPoint(target);
+    sim.projectiles.push({
+        id: `p${sim.frame}_${sim.projectiles.length}_${unit.id}`,
+        x: unit.x,
+        y: unit.y - 8,
+        tx: point.x,
+        ty: point.y,
+        owner: unit.owner,
+        dmg: Number(unit.meta.dmg || 1),
+        speed: skill === 'grenade' ? 6 : 8,
+        color: unit.owner === 0 ? '#38bdf8' : '#fbbf24',
+        dmgType: unit.meta.dmg_type || 'physical',
+        sprite: getServerProjectileSprite(unit, skill),
+        explosionRadius: skill === 'grenade' ? 28 : 0,
+        visualOnly: true,
+        life: 45
+    });
+}
+
 function applyServerAreaDamage(match, unit, center, radius, amount, damageType, label) {
     const sim = match.sim;
     sim.units.forEach(target => {
@@ -399,6 +433,7 @@ function tryServerSkill(match, unit, target) {
             unit.mana -= 30;
             unit.skillCooldown = 120;
             setServerAnim(unit, 'attack', sim.frame);
+            addServerProjectileVisual(match, unit, target, 'grenade');
             applyServerAreaDamage(match, unit, getServerTargetPoint(target), 48, Number(unit.meta.dmg || 1) * 1.8, 'physical', 'grenade');
             return true;
         }
@@ -450,6 +485,19 @@ function updateServerSim(match) {
         if (!player.eliminated) player.gold += SERVER_GOLD_RATE;
     });
 
+    for (let i = sim.projectiles.length - 1; i >= 0; i--) {
+        const projectile = sim.projectiles[i];
+        const distance = serverDist(projectile, { x: projectile.tx, y: projectile.ty });
+        if (distance <= Math.max(8, projectile.speed) || projectile.life <= 0) {
+            sim.projectiles.splice(i, 1);
+            continue;
+        }
+        const angle = Math.atan2(projectile.ty - projectile.y, projectile.tx - projectile.x);
+        projectile.x += Math.cos(angle) * projectile.speed;
+        projectile.y += Math.sin(angle) * projectile.speed;
+        projectile.life -= 1;
+    }
+
     while (sim.commands.length) {
         const command = sim.commands.shift();
         if (command.type === 'buy') spawnServerUnit(match, command.playerIndex, command.unitType);
@@ -490,6 +538,7 @@ function updateServerSim(match) {
                 const berserk = unit.berserkUntil && unit.berserkUntil > sim.frame ? 1.6 : 1;
                 const amount = getServerDamage(unit, target, Number(unit.meta.dmg || 1) * berserk, unit.meta.dmg_type || 'physical');
                 target.hp -= amount;
+                if (range >= 35) addServerProjectileVisual(match, unit, target);
                 if (!target.base) target.lastAttacker = unit.owner;
                 const event = {
                     type: 'damage',

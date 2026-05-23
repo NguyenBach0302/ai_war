@@ -1451,7 +1451,7 @@ const Game = (function() {
             meta: { ...CLASSES[u.type] },
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
-        projectiles = [];
+        projectiles = Array.isArray(state.projectiles) ? state.projectiles.map(pr => ({ ...pr })) : [];
         vfx = [];
         floatingTexts = [];
         if (Array.isArray(payload.events)) {
