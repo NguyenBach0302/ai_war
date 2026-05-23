@@ -167,7 +167,7 @@ function getServerDamage(attacker, target, baseDmg, type) {
 }
 
 function calculateServerDamage(sim, attacker, target, baseDmg, type) {
-    const dodge = target.meta ? Number(target.meta.dodge || 0) : 0;
+    const dodge = target.meta ? Number(target.meta.dodge || 0) + (target.dodgeBoostUntil && target.dodgeBoostUntil > sim.frame ? 0.5 : 0) : 0;
     if (dodge > 0 && serverRng(sim) < dodge) {
         return { amount: 0, dodged: true, isCrit: false };
     }
@@ -199,7 +199,7 @@ function applyServerDamage(match, attacker, target, baseDmg, type, skill = null)
     if (!result.dodged) {
         target.hp -= result.amount;
         if (!target.base) target.lastAttacker = attacker.owner;
-        const lifesteal = Number(attacker.meta?.lifesteal || 0);
+        const lifesteal = Number(attacker.meta?.lifesteal || 0) + (attacker.lifestealBoostUntil && attacker.lifestealBoostUntil > sim.frame ? 0.5 : 0);
         if (lifesteal > 0 && result.amount > 0) {
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + result.amount * lifesteal);
         }
@@ -281,7 +281,12 @@ function serializeServerSim(match) {
                 cooldown: unit.cooldown,
                 state: unit.state,
                 radius: 12,
-                buffs: [],
+                buffs: [
+                    ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
+                    ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
+                    ...(unit.critBoostUntil && unit.critBoostUntil > sim.frame ? [{ type: 'crit_chance', value: 0.5, duration: unit.critBoostUntil - sim.frame }] : []),
+                    ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : [])
+                ],
                 isPet: false,
                 untargetableTimer: 0,
                 facing: unit.facing,
@@ -542,14 +547,19 @@ function tryServerSkill(match, unit, target) {
         return true;
     }
 
-    if (lower.includes('assassin') && unit.mana >= 30 && target && !target.base) {
+    if (lower.includes('assassin') && unit.mana >= 30) {
+        const dashTarget = sim.units
+            .filter(other => other.owner !== unit.owner && other.hp > 0 && serverDist(unit, other) <= 300)
+            .sort((a, b) => serverDist(unit, b) - serverDist(unit, a))[0];
+        if (!dashTarget) return false;
         unit.mana -= 30;
         unit.skillCooldown = 120;
         const side = unit.facing === 'left' ? 1 : -1;
-        unit.x = target.x + side * 28;
-        unit.y = target.y;
+        unit.x = dashTarget.x + side * 28;
+        unit.y = dashTarget.y;
         setServerAnim(unit, 'attack_3', sim.frame);
-        unit.critBoostUntil = sim.frame + 180;
+        unit.dodgeBoostUntil = sim.frame + 180;
+        unit.lifestealBoostUntil = sim.frame + 180;
         addServerVfxVisual(match, unit.x, unit.y - 20, 'DASH', '#f43f5e');
         return true;
     }
