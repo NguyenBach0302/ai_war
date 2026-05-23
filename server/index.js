@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const MATCH_START_DELAY_MS = 3000;
 const MATCH_TTL_MS = 1000 * 60 * 60;
 const MATCH_FPS = 60;
-const MATCH_ACTION_DELAY_FRAMES = 90;
+const MATCH_ACTION_DELAY_FRAMES = 36;
 const waitingMatches = [];
 const matches = new Map();
 const ADMIN_UNIT_FIELDS = new Set([
@@ -117,6 +117,7 @@ function getMatchPayload(match, userId) {
         players: match.players.map(player => ({ id: player.id, username: player.username })),
         seed: match.seed,
         startsAt: match.startsAt,
+        serverNow: Date.now(),
         units: match.units || null
     };
 }
@@ -339,7 +340,21 @@ app.get('/api/match/stream', (req, res) => {
         });
     }
 
+    const syncTimer = setInterval(() => {
+        if (res.destroyed || match.ended) {
+            clearInterval(syncTimer);
+            return;
+        }
+        res.write(`event: match-sync\ndata: ${JSON.stringify({
+            serverNow: Date.now(),
+            serverFrame: getMatchFrame(match),
+            lastActionId: Number(match.nextActionId || 1) - 1,
+            actions: (match.actionLog || []).slice(-50)
+        })}\n\n`);
+    }, 250);
+
     req.on('close', () => {
+        clearInterval(syncTimer);
         if (match.clients.get(decoded.id) === res) match.clients.delete(decoded.id);
         sendMatchEvent(match, 'player-disconnected', { userId: decoded.id });
     });

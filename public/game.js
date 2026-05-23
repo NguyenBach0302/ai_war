@@ -226,11 +226,15 @@ const Online = (function() {
                 players: data.players,
                 seed: data.seed,
                 startsAt: data.startsAt,
+                serverNow: data.serverNow,
                 units: data.units
             });
         });
         source.addEventListener('match-action', event => {
             Game.applyOnlineAction(JSON.parse(event.data));
+        });
+        source.addEventListener('match-sync', event => {
+            Game.syncOnlineClock(JSON.parse(event.data));
         });
         source.addEventListener('player-disconnected', () => {
             setStatus('Opponent disconnected. Match can continue, but they may stop responding.');
@@ -434,13 +438,14 @@ const Game = (function() {
     let players = [], units = [], projectiles = [], vfx = [], particles = [], floatingTexts = [], unitsPending = [];
     let aiProcessFlags = [false, false]; 
     let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
-    let onlineActions = [], simulationStartedAt = 0;
+    let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0;
     let processedOnlineActionIds = new Set();
+    let onlineServerClockOffsetMs = 0;
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
     const MAX_UNITS_PER_PLAYER = 50;
-    const ONLINE_RENDER_DELAY_FRAMES = 45;
+    const ONLINE_RENDER_DELAY_FRAMES = 8;
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
     const MELEE_BASE_INTERCEPT_DISTANCE = 220;
@@ -491,6 +496,7 @@ const Game = (function() {
         fxRngState = (fxRngState * 1103515245 + 12345) >>> 0;
         return fxRngState / 0x100000000;
     };
+    const serverNowMs = () => Date.now() + onlineServerClockOffsetMs;
     const isMeleeUnit = (u) => (u.meta?.range || 0) < 35;
     const targetPressure = (target, owner) => {
         if (target.base) return 0;
@@ -1215,6 +1221,18 @@ const Game = (function() {
             actionFrame: Number(payload.actionFrame || frameCount + 1)
         });
         onlineActions.sort((a, b) => a.actionFrame - b.actionFrame || a.actionId - b.actionId || a.playerIndex - b.playerIndex || String(a.unitType).localeCompare(String(b.unitType)));
+    }
+
+    function syncOnlineClock(payload) {
+        if (!onlineMode) return;
+        const serverNow = Number(payload?.serverNow);
+        if (Number.isFinite(serverNow)) {
+            const measuredOffset = serverNow - Date.now();
+            onlineServerClockOffsetMs += (measuredOffset - onlineServerClockOffsetMs) * 0.15;
+        }
+        if (Array.isArray(payload?.actions)) {
+            payload.actions.forEach(applyOnlineAction);
+        }
     }
 
     function processOnlineActions() {
@@ -2193,7 +2211,7 @@ const Game = (function() {
 
         if (onlineMode) {
             if (!paused) {
-                const targetFrame = Math.max(0, Math.floor((now - simulationStartedAt) / FIXED_FRAME_MS) - ONLINE_RENDER_DELAY_FRAMES);
+                const targetFrame = Math.max(0, Math.floor((serverNowMs() - onlineStartsAtServerMs) / FIXED_FRAME_MS) - ONLINE_RENDER_DELAY_FRAMES);
                 let steps = 0;
                 while (running && frameCount < targetFrame && steps < 8) {
                     update();
@@ -2362,6 +2380,10 @@ const Game = (function() {
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
+        onlineServerClockOffsetMs = onlineMode && Number.isFinite(Number(options.serverNow))
+            ? Number(options.serverNow) - Date.now()
+            : 0;
+        onlineStartsAtServerMs = onlineMode ? Number(options.startsAt || serverNowMs()) : 0;
         if (onlineMode && Array.isArray(options.units)) applyUnitData(options.units);
         setSeed(onlineMode ? options.seed : 1);
         canvas = document.getElementById('gameCanvas'); 
@@ -2439,11 +2461,11 @@ const Game = (function() {
         if (pauseBtn) pauseBtn.innerText = 'PAUSE';
         const firstFocus = localPlayerIndex === 0 ? 'home' : 'enemy';
         setTimeout(() => { focusCamera(firstFocus); updateDeploymentHudPosition(); }, 0);
-        const startDelay = onlineMode ? Math.max(0, Number(options.startsAt || Date.now()) - Date.now()) : 0;
+        const startDelay = onlineMode ? Math.max(0, onlineStartsAtServerMs - serverNowMs()) : 0;
         if (onlineMode && startDelay > 0) log(`Battle starts in ${Math.ceil(startDelay / 1000)} seconds.`, '#fbbf24');
         setTimeout(() => {
             simulationStartedAt = onlineMode
-                ? performance.now() - Math.max(0, Date.now() - Number(options.startsAt || Date.now()))
+                ? performance.now() - Math.max(0, serverNowMs() - onlineStartsAtServerMs)
                 : performance.now();
             running = true;
             requestAnimationFrame(loop);
@@ -2470,7 +2492,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, applyOnlineAction, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
+    return { init, buy: buyUnit, applyOnlineAction, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
 })();
 
 window.UI = UI;
