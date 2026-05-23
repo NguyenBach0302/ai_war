@@ -105,6 +105,9 @@
                 <button type="button" onclick="Game.focusCamera('mid')">Mid</button>
                 <button type="button" onclick="Game.focusCamera('enemy')">Enemy</button>
                 <button type="button" onclick="Game.panCamera(420)">›</button>
+                <button type="button" class="zoom-btn" onclick="Game.zoomCamera(-0.1)">-</button>
+                <button type="button" class="zoom-label" id="camera-zoom-label" onclick="Game.setCameraZoom(1)">100%</button>
+                <button type="button" class="zoom-btn" onclick="Game.zoomCamera(0.1)">+</button>
                 <button type="button" class="fullscreen-btn" onclick="Game.toggleFullscreen()">FULL</button>
             </div>
             <div id="deployment-hud" style="display:none;">
