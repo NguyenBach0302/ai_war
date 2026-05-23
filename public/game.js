@@ -2538,7 +2538,7 @@ const Game = (function() {
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
-        onlineAuthoritative = onlineMode && localPlayerIndex === 0;
+        onlineAuthoritative = false;
         onlineStateSeq = 0;
         onlineLastPublishedFrame = 0;
         onlinePublishInFlight = false;
