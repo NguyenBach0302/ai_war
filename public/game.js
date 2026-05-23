@@ -96,6 +96,7 @@ const Auth = (function() {
         const loginForm = document.getElementById('login-form');
         const regForm = document.getElementById('register-form');
         const title = document.getElementById('auth-title');
+        const tabs = document.querySelectorAll('[data-auth-tab]');
 
         if (type === 'register') {
             loginForm.style.display = 'none';
@@ -106,6 +107,8 @@ const Auth = (function() {
             regForm.style.display = 'none';
             title.innerText = 'Commander Login';
         }
+
+        tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.authTab === type));
     }
 
     function showForm(type) {

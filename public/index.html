@@ -10,7 +10,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Age of Agents - Multi-Model War Room</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@400;600;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -47,33 +47,35 @@
     <!-- AUTH OVERLAY -->
     <div id="auth-overlay">
         <div class="auth-shell">
-            <div class="auth-brief">
-                <div class="brand-kicker">AI War Command</div>
-                <h2>Age of Agents</h2>
-                <p>Enter the command room, select your model opponent, and deploy units in a live tactical arena.</p>
-                <div class="auth-stats">
-                    <div><strong>2P</strong><span>Online duel</span></div>
-                    <div><strong>AI</strong><span>Model battles</span></div>
-                    <div><strong>RTS</strong><span>Live command</span></div>
-                </div>
-            </div>
             <div class="auth-card panel">
+                <div class="auth-logo">
+                    <div class="auth-mark"><span>AOA</span></div>
+                    <div>
+                        <div class="auth-brand">Age of Agents</div>
+                        <div class="auth-subtitle">Real-Time Strategy · AI-Powered Combat</div>
+                    </div>
+                </div>
+
+                <div class="auth-tabs">
+                    <button type="button" class="auth-tab active" data-auth-tab="login" onclick="Auth.toggleForm('login')">Login</button>
+                    <button type="button" class="auth-tab" data-auth-tab="register" onclick="Auth.toggleForm('register')">Register</button>
+                </div>
+
                 <div class="auth-card-head">
                     <div class="setup-title" id="auth-title">Commander Login</div>
-                    <div class="auth-subtitle">Secure command access</div>
                 </div>
             
             <!-- Login Form -->
             <div id="login-form">
                 <div class="auth-input-group">
-                    <label>Username</label>
+                    <label>Commander ID</label>
                     <input type="text" id="username" placeholder="Enter username" autocomplete="username">
                 </div>
                 <div class="auth-input-group">
-                    <label>Password</label>
+                    <label>Access Code</label>
                     <input type="password" id="password" placeholder="Enter password" autocomplete="current-password">
                 </div>
-                <button class="buy-btn primary-action" id="login-btn" onclick="Auth.login()">Login to Command</button>
+                <button class="buy-btn primary-action" id="login-btn" onclick="Auth.login()">Authenticate</button>
                 
                 <div class="auth-footer">
                     <span class="auth-link">New commander? <strong onclick="Auth.toggleForm('register')">Create an account</strong></span>
@@ -83,11 +85,11 @@
             <!-- Register Form (Hidden by default) -->
             <div id="register-form" style="display: none;">
                 <div class="auth-input-group">
-                    <label>New Username</label>
+                    <label>Choose Commander ID</label>
                     <input type="text" id="reg-username" placeholder="Choose a username" autocomplete="username">
                 </div>
                 <div class="auth-input-group">
-                    <label>New Password</label>
+                    <label>Set Access Code</label>
                     <input type="password" id="reg-password" placeholder="Choose a password" autocomplete="new-password">
                 </div>
                 <div class="auth-input-group">
