@@ -7,6 +7,7 @@ class MatchService {
         this.MATCH_FPS = 60;
         this.MATCH_ACTION_DELAY_FRAMES = 0;
         this.MATCH_BROADCAST_EVERY_FRAMES = 4;
+        this.MATCH_BROADCAST_EVERY_FRAMES_HIGH_LOAD = 6;
         this.FULL_SNAPSHOT_EVERY_FRAMES = 60;
         this.SERVER_GOLD_RATE = 0.15;
         this.SERVER_MAP_W = 2400;
@@ -333,6 +334,11 @@ class MatchService {
             .slice(-limit);
     }
 
+    getBroadcastEveryFrames(sim) {
+        const unitCount = Array.isArray(sim?.units) ? sim.units.length : 0;
+        return unitCount >= 40 ? this.MATCH_BROADCAST_EVERY_FRAMES_HIGH_LOAD : this.MATCH_BROADCAST_EVERY_FRAMES;
+    }
+
     applyServerDamage(match, attacker, target, baseDmg, type, skill = null) {
         const sim = match.sim;
         const result = this.calculateServerDamage(sim, attacker, target, baseDmg, type);
@@ -614,7 +620,9 @@ class MatchService {
         const fullPayload = this.serializeServerSim(match);
         match.stateSeq = fullPayload.seq;
         match.stateSnapshot = fullPayload;
-        return this.buildDeltaStatePayload(match, fullPayload);
+        const payload = this.buildDeltaStatePayload(match, fullPayload);
+        if (match.sim) match.sim.pendingVisualEvents = [];
+        return payload;
     }
 
     broadcastServerFrame(match) {
@@ -818,7 +826,6 @@ class MatchService {
         if (sim.pendingVisualEvents.length > this.MAX_VISUAL_EVENTS) {
             sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length - this.MAX_VISUAL_EVENTS);
         }
-        this.sendMatchEvent(match, 'match-visual', event);
     }
 
     addServerVfxVisual(match, x, y, text, color = '#fff') {
@@ -837,7 +844,6 @@ class MatchService {
         if (sim.pendingVisualEvents.length > this.MAX_VISUAL_EVENTS) {
             sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length - this.MAX_VISUAL_EVENTS);
         }
-        this.sendMatchEvent(match, 'match-visual', event);
     }
 
     applyServerAreaDamage(match, unit, center, radius, amount, damageType, label) {
@@ -858,11 +864,10 @@ class MatchService {
             unit.skillCooldown = 120;
             this.setServerAnim(unit, 'charge_2', sim.frame);
             const targets = this.queryServerSpatialUnits(sim, unit.x, unit.y, 320, other => other.owner !== unit.owner && other.hp > 0)
-                .map(other => ({ unit: other, distance: this.serverDist(unit, other) }))
-                .sort((a, b) => a.distance - b.distance)
-                .slice(0, 3)
-                .map(entry => entry.unit);
-            targets.forEach(enemy => {
+                .map(other => ({ unit: other, distance: this.serverDist(unit, other) }));
+            targets.sort((a, b) => a.distance - b.distance);
+            const selectedTargets = targets.slice(0, 3).map(entry => entry.unit);
+            selectedTargets.forEach(enemy => {
                 enemy.frozenUntil = Math.max(enemy.frozenUntil || 0, sim.frame + 120);
                 this.applyServerDamage(match, unit, enemy, 20, 'true', 'frost');
                 this.addServerVfxVisual(match, enemy.x, enemy.y - 20, 'FROST', '#7dd3fc');
@@ -909,8 +914,16 @@ class MatchService {
         }
 
         if (lower.includes('assassin') && unit.mana >= 80) {
-            const dashTarget = this.queryServerSpatialUnits(sim, unit.x, unit.y, 300, other => other.owner !== unit.owner && other.hp > 0)
-                .sort((a, b) => this.serverDist(unit, b) - this.serverDist(unit, a))[0];
+            const dashCandidates = this.queryServerSpatialUnits(sim, unit.x, unit.y, 300, other => other.owner !== unit.owner && other.hp > 0);
+            let dashTarget = null;
+            let farthestDistance = -1;
+            dashCandidates.forEach(other => {
+                const distance = this.serverDist(unit, other);
+                if (distance > farthestDistance) {
+                    farthestDistance = distance;
+                    dashTarget = other;
+                }
+            });
             if (!dashTarget) return false;
             unit.mana -= 80;
             unit.skillCooldown = 300;
@@ -925,9 +938,17 @@ class MatchService {
         }
 
         if (lower.includes('healer') && unit.mana >= 80) {
-            const ally = (sim.spatialIndex?.byOwner?.[unit.owner] || sim.units)
-                .filter(other => other.id !== unit.id && other.hp < other.maxHp)
-                .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+            const allyPool = sim.spatialIndex?.byOwner?.[unit.owner] || sim.units;
+            let ally = null;
+            let lowestHpRatio = Infinity;
+            allyPool.forEach(other => {
+                if (other.id === unit.id || other.hp >= other.maxHp) return;
+                const hpRatio = other.hp / Math.max(1, other.maxHp);
+                if (hpRatio < lowestHpRatio) {
+                    lowestHpRatio = hpRatio;
+                    ally = other;
+                }
+            });
             if (!ally) return false;
             unit.mana -= 80;
             unit.skillCooldown = 240;
@@ -1053,7 +1074,7 @@ class MatchService {
         });
 
         sim.seq += 1;
-        if (sim.frame % this.MATCH_BROADCAST_EVERY_FRAMES === 0) this.broadcastServerFrame(match);
+        if (sim.frame % this.getBroadcastEveryFrames(sim) === 0) this.broadcastServerFrame(match);
         const activePlayers = sim.players.filter(player => !player.eliminated);
         if (activePlayers.length <= 1) this.endServerMatch(match, 'finished');
     }
