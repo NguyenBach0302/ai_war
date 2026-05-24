@@ -172,61 +172,45 @@ function getServerSurfaceDistance(unit, target) {
 function clampServerUnitPosition(unit) {
     const minX = getServerBaseForPlayer(0).x + SERVER_BASE_R + SERVER_UNIT_HALF_SIZE;
     const maxX = getServerBaseForPlayer(1).x - SERVER_BASE_R - SERVER_UNIT_HALF_SIZE;
-    const minY = SERVER_LANE_Y - SERVER_ROAD_HALF_WIDTH + SERVER_UNIT_HALF_SIZE;
-    const maxY = SERVER_LANE_Y + SERVER_ROAD_HALF_WIDTH - SERVER_UNIT_HALF_SIZE;
     unit.x = Math.min(maxX, Math.max(minX, Number(unit.x || 0)));
-    unit.y = Math.min(maxY, Math.max(minY, Number(unit.y || SERVER_LANE_Y)));
+    unit.y = SERVER_LANE_Y;
 }
 
 function findServerSpawnPoint(sim, playerIndex) {
     const player = sim.players[playerIndex];
     const dir = getServerForwardDir(playerIndex);
-    const x = player.base.x + dir * (player.base.r + SERVER_UNIT_HALF_SIZE);
-    const minY = SERVER_LANE_Y - SERVER_ROAD_HALF_WIDTH + SERVER_UNIT_HALF_SIZE;
-    const maxY = SERVER_LANE_Y + SERVER_ROAD_HALF_WIDTH - SERVER_UNIT_HALF_SIZE;
-    const slots = [SERVER_LANE_Y];
-    for (let step = SERVER_UNIT_SIZE; step <= SERVER_ROAD_HALF_WIDTH; step += SERVER_UNIT_SIZE) {
-        slots.push(SERVER_LANE_Y - step, SERVER_LANE_Y + step);
-    }
-    for (const candidateY of slots) {
-        if (candidateY < minY || candidateY > maxY) continue;
+    let x = player.base.x + dir * (player.base.r + SERVER_UNIT_HALF_SIZE);
+    for (let attempts = 0; attempts < SERVER_MAX_UNITS_PER_PLAYER + 20; attempts++) {
         const blocked = sim.units.some(other =>
-            Math.abs(Number(other.x || 0) - x) < SERVER_UNIT_SIZE &&
-            Math.abs(Number(other.y || SERVER_LANE_Y) - candidateY) < SERVER_UNIT_SIZE
+            Math.abs(Number(other.y || SERVER_LANE_Y) - SERVER_LANE_Y) < SERVER_UNIT_SIZE &&
+            Math.abs(Number(other.x || 0) - x) < SERVER_UNIT_SIZE
         );
-        if (!blocked) return { x, y: candidateY };
+        if (!blocked) return { x, y: SERVER_LANE_Y };
+        x += dir * SERVER_UNIT_SIZE;
     }
     return { x, y: SERVER_LANE_Y };
 }
 
 function resolveServerUnitSpacing(sim) {
     if (!sim?.units?.length) return;
+    const minDistance = SERVER_UNIT_SIZE;
     for (let pass = 0; pass < 6; pass++) {
+        sim.units.sort((a, b) => Number(a.x || 0) - Number(b.x || 0));
         let changed = false;
-        for (let i = 0; i < sim.units.length; i++) {
-            for (let j = i + 1; j < sim.units.length; j++) {
-                const a = sim.units[i];
-                const b = sim.units[j];
-                const dx = Number(b.x || 0) - Number(a.x || 0);
-                const dy = Number(b.y || 0) - Number(a.y || 0);
-                const overlapX = SERVER_UNIT_SIZE - Math.abs(dx);
-                const overlapY = SERVER_UNIT_SIZE - Math.abs(dy);
-                if (overlapX <= 0 || overlapY <= 0) continue;
-                if (overlapY <= overlapX) {
-                    const pushY = overlapY / 2 || SERVER_UNIT_HALF_SIZE;
-                    const signY = dy === 0 ? (a.owner <= b.owner ? -1 : 1) : Math.sign(dy);
-                    a.y -= signY * pushY;
-                    b.y += signY * pushY;
-                } else {
-                    const pushX = overlapX / 2 || SERVER_UNIT_HALF_SIZE;
-                    const signX = dx === 0 ? (a.owner <= b.owner ? -1 : 1) : Math.sign(dx);
-                    a.x -= signX * pushX;
-                    b.x += signX * pushX;
-                }
-                clampServerUnitPosition(a);
-                clampServerUnitPosition(b);
-                changed = true;
-            }
+        for (let i = 0; i < sim.units.length - 1; i++) {
+            const a = sim.units[i];
+            const b = sim.units[i + 1];
+            const dx = Number(b.x || 0) - Number(a.x || 0);
+            const dy = Number(b.y || 0) - Number(a.y || 0);
+            const distance = Math.hypot(dx, dy);
+            if (distance >= minDistance) continue;
+            const overlap = minDistance - distance;
+            const signX = dx === 0 ? (a.owner <= b.owner ? 1 : -1) : Math.sign(dx);
+            a.x -= signX * (overlap / 2);
+            b.x += signX * (overlap / 2);
+            clampServerUnitPosition(a);
+            clampServerUnitPosition(b);
+            changed = true;
         }
         if (!changed) break;
     }
