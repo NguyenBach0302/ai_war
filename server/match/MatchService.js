@@ -332,10 +332,7 @@ class MatchService {
                     maxMana: unit.maxMana,
                     x: unit.x,
                     y: unit.y,
-                    laneY: unit.y,
-                    cooldown: unit.cooldown,
                     state: unit.state,
-                    behavior: unit.behavior || unit.state,
                     radius: this.getServerUnitHalfSize(),
                     buffs: [
                         ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
@@ -348,28 +345,7 @@ class MatchService {
                     facing: unit.facing,
                     blockTimer: 0,
                     animAction: unit.animAction,
-                    animStartedAt: unit.animStartedAt,
-                    position: {
-                        x: unit.x,
-                        y: unit.y,
-                        laneY: unit.y
-                    },
-                    footprint: {
-                        width: this.SERVER_UNIT_SIZE,
-                        height: this.SERVER_UNIT_SIZE,
-                        halfSize: this.SERVER_UNIT_HALF_SIZE
-                    },
-                    target: unit.currentTarget || null,
-                    targetDistance: Number(unit.targetDistance || 0),
-                    stats: {
-                        moveSpeed: Number(unit.meta?.move_speed || 0),
-                        range: Number(unit.meta?.range || 0),
-                        damage: Number(unit.meta?.dmg || 0),
-                        attackSpeed: Number(unit.meta?.atk_speed || 0),
-                        damageType: unit.meta?.dmg_type || 'physical'
-                    },
-                    lastDamageDealt: unit.lastDamageDealt || null,
-                    lastDamageTaken: unit.lastDamageTaken || null
+                    animStartedAt: unit.animStartedAt
                 })),
                 projectiles: [],
                 vfx: [],

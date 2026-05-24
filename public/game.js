@@ -566,6 +566,7 @@ const Game = (function() {
     let mapBackgroundCanvas = null;
     let playerHudCache = [];
     let lastUnitButtonsUpdateFrame = -1;
+    let sortedUnitsBuffer = [];
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
@@ -2604,7 +2605,9 @@ const Game = (function() {
         players.forEach(p => {
             drawBase(p);
         });
-        [...units].sort((a, b) => a.y - b.y).forEach(drawUnit);
+        sortedUnitsBuffer = units.slice();
+        sortedUnitsBuffer.sort((a, b) => a.y - b.y);
+        sortedUnitsBuffer.forEach(drawUnit);
         vfx.forEach(fx => {
             const pct = fx.life / fx.maxLife;
             ctx.save();
@@ -2927,6 +2930,7 @@ const Game = (function() {
         playerHudCache = [];
         lastUnitButtonsUpdateFrame = -1;
         mapBackgroundCanvas = null;
+        sortedUnitsBuffer = [];
         
         const dash = document.getElementById('dashboard'); 
         dash.innerHTML = '';

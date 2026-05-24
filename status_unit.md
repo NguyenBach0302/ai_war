@@ -2,7 +2,7 @@
 
 Source of truth used here:
 - `init_db.sql` for seeded unit stats
-- `server/index.js` for online/server simulation behavior
+- `server/match/MatchService.js` for online/server simulation behavior
 - `public/game.js` for local/client simulation behavior
 
 ## Architecture
@@ -17,7 +17,7 @@ Source of truth used here:
 - Units are arranged widthwise across the road first, then expand lengthwise only after width slots are filled.
 - The server decides movement, targeting, skill usage, attacks, damage resolution, and elimination results.
 - The client does not decide authoritative combat results in online mode.
-- The client receives `match-state` payloads from the server, reads the full unit status list, and renders the battlefield, animations, projectiles, logs, and UI for the user.
+- The client receives trimmed `match-state` payloads from the server, reads the unit status list, and renders the battlefield, animations, projectiles, logs, and UI for the user.
 - In short:
   - Server: simulate war from unit state.
   - Client: render war from server state.
@@ -54,26 +54,35 @@ Source of truth used here:
 
 ### Realtime unit state from server
 
-Each unit inside `match-state.state.units[]` now carries live combat information, not just base stats.
+Each unit inside `match-state.state.units[]` carries the minimum runtime state needed for online rendering and reconciliation.
 
 | Field | Meaning |
 | --- | --- |
 | `x`, `y` | Current unit position on the battlefield |
-| `position.x`, `position.y`, `position.laneY` | Same position grouped for easier consumers |
 | `state` | High-level runtime state such as `march`, `fight`, `idle`, `frozen` |
-| `behavior` | More explicit behavior label such as `spawn`, `moving`, `engaging`, `attacking`, `idle`, `crowd_controlled` |
 | `facing` | Direction the unit is facing: `left` or `right` |
 | `animAction` | Current animation action selected by the server |
 | `animStartedAt` | Frame where the current animation started |
-| `target` | Current target snapshot with `id`, `type`, `owner`, `x`, `y`, `hp`, `maxHp`, `isBase` |
-| `targetDistance` | Current distance from unit to target after target radius adjustment |
-| `stats.moveSpeed` | Effective base move speed from unit meta |
-| `stats.range` | Effective attack range from unit meta |
-| `stats.damage` | Base attack damage from unit meta |
-| `stats.attackSpeed` | Base attack speed from unit meta |
-| `stats.damageType` | Damage type used by the unit: `physical`, `magic`, or `true` on skill events |
-| `lastDamageDealt` | Latest hit this unit dealt |
-| `lastDamageTaken` | Latest hit this unit received |
+| `radius` | Collision/render radius used by the client |
+| `buffs[]` | Active temporary combat modifiers exposed to the client |
+| `hp`, `maxHp`, `mana`, `maxMana` | Current health and mana state |
+| `isPet` | Reserved flag, currently `false` in authoritative online state |
+| `untargetableTimer` | Reserved timer, currently `0` in authoritative online state |
+| `blockTimer` | Reserved timer, currently `0` in authoritative online state |
+
+Fields intentionally removed from the online broadcast for performance:
+- `position`
+- `footprint`
+- `stats`
+- `target`
+- `targetDistance`
+- `lastDamageDealt`
+- `lastDamageTaken`
+- `behavior`
+- `cooldown`
+- `laneY`
+
+Those fields may still exist in local/client simulation logic or be useful for debug tooling, but they are no longer sent in every online `match-state` packet.
 
 ### Spatial occupancy rule
 
@@ -132,5 +141,11 @@ Recent server events are included in `match-state.events[]`. Damage events conta
 - The database uses the name `Gunman`, while art/code also reference `Gunner`. Runtime code handles both spellings in several places.
 - `Sniper` cost is seeded as `0`, which makes it effectively free if bought directly from unit data. The code also has a separate evolution path where `Gunman` can become `Sniper`.
 - Client `applyUnitData()` assigns a generic `skillCost` of `30` to most units, but actual runtime mana thresholds vary by unit. Use the runtime values above when balancing behavior.
-- `match-state.events[]` now includes gameplay events plus visual events, so consumers should filter by `event.type` instead of assuming the list is visual-only.
-- Current implementation note: the authoritative server now enforces a `10 x 10` occupied-area spacing rule, preserves widthwise lane offsets within the road, resolves spacing with Euclidean distance, and exposes `footprint.width`, `footprint.height`, and `footprint.halfSize` in each unit payload. The client may still use a larger visual sprite size than the simulation footprint.
+- `match-state.events[]` includes gameplay events plus visual events, so consumers should filter by `event.type` instead of assuming the list is visual-only.
+- Current implementation note: the authoritative server enforces a `10 x 10` occupied-area spacing rule, preserves widthwise lane offsets within the road, and resolves spacing with Euclidean distance. The client may still use a larger visual sprite size than the simulation footprint.
+- Match logic has been extracted from `server/index.js` into `server/match/MatchService.js`.
+- Online performance work already applied:
+  - match-state broadcast rate reduced from every `2` frames to every `4` frames
+  - match event history and visual event history are capped instead of growing unbounded
+  - the client caches the static map background instead of redrawing the full terrain every frame
+  - a lightweight `/api/match/ping` endpoint exists for gameplay connection latency display
