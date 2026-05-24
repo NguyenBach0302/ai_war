@@ -18,7 +18,9 @@ export class MatchService {
     private readonly SERVER_UNIT_SIZE = 10;
     private readonly SERVER_UNIT_HALF_SIZE = this.SERVER_UNIT_SIZE / 2;
     private readonly SERVER_FORMATION_LANE_OFFSETS = [-45, -35, -25, -15, -5, 5, 15, 25, 35, 45];
-    private readonly SERVER_MARCH_WIDTH_CANDIDATES = [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90];
+    private readonly SERVER_MARCH_STEER_INTERVAL = 10;
+    private readonly SERVER_MARCH_STEER_STEP = 12;
+    private readonly SERVER_MARCH_STEER_LIMIT = 64;
     private readonly SERVER_MAX_UNITS_PER_PLAYER = 50;
     private readonly SERVER_MANA_REGEN_INTERVAL_FRAMES = 60;
     private readonly SERVER_MANA_REGEN_AMOUNT = 4;
@@ -154,31 +156,47 @@ export class MatchService {
     }
 
     chooseServerMarchY(sim: AnyObject, unit: AnyObject, preferredY: number, dir: number): number {
-        const lookAheadX = Number(unit.x || 0) + dir * Math.max(18, Number(unit.meta?.move_speed || 1) * 14);
         const minY = this.SERVER_LANE_Y - this.SERVER_ROAD_HALF_WIDTH + this.SERVER_UNIT_HALF_SIZE;
         const maxY = this.SERVER_LANE_Y + this.SERVER_ROAD_HALF_WIDTH - this.SERVER_UNIT_HALF_SIZE;
-        let bestY = Math.min(maxY, Math.max(minY, Number(preferredY || this.SERVER_LANE_Y)));
-        let bestScore = Infinity;
+        const baseY = Math.min(maxY, Math.max(minY, Number(preferredY || this.SERVER_LANE_Y)));
+        if (!Number.isFinite(unit.marchTargetY)) unit.marchTargetY = Math.min(maxY, Math.max(minY, Number(unit.y || baseY)));
+        if (Number(unit.marchRetargetCooldown || 0) > 0) {
+            unit.marchRetargetCooldown -= 1;
+            return unit.marchTargetY;
+        }
 
-        this.SERVER_MARCH_WIDTH_CANDIDATES.forEach((offset: number) => {
-            const candidateY = Math.min(maxY, Math.max(minY, Number(preferredY || this.SERVER_LANE_Y) + offset));
-            let score = Math.abs(candidateY - Number(preferredY || this.SERVER_LANE_Y)) * 0.35;
-            sim.units.forEach((other: AnyObject) => {
-                if (other === unit || other.hp <= 0) return;
-                const dx = Number(other.x || 0) - lookAheadX;
-                const dy = Number(other.y || 0) - candidateY;
-                if (Math.abs(dx) > 24 || Math.abs(dy) > 18) return;
-                const sameOwnerPenalty = other.owner === unit.owner ? 120 : 90;
-                const aheadPenalty = dx * dir >= -8 ? 40 : 10;
-                score += sameOwnerPenalty + aheadPenalty + (24 - Math.abs(dx)) * 2 + (18 - Math.abs(dy)) * 2;
-            });
-            if (score < bestScore) {
-                bestScore = score;
-                bestY = candidateY;
-            }
+        let upperBias = 0;
+        let lowerBias = 0;
+        let frontBlockers = 0;
+        sim.units.forEach((other: AnyObject) => {
+            if (other === unit || other.hp <= 0) return;
+            const dx = (Number(other.x || 0) - Number(unit.x || 0)) * dir;
+            if (dx < -10 || dx > 28) return;
+            const dy = Number(other.y || 0) - Number(unit.y || 0);
+            if (Math.abs(dy) > 24) return;
+            frontBlockers += 1;
+            const weight = (32 - Math.min(32, dx + 10)) * (26 - Math.abs(dy));
+            if (dy <= 0) upperBias += weight * (other.owner === unit.owner ? 1.15 : 0.85);
+            if (dy >= 0) lowerBias += weight * (other.owner === unit.owner ? 1.15 : 0.85);
         });
 
-        return bestY;
+        let steer = 0;
+        if (frontBlockers > 0) {
+            const imbalance = lowerBias - upperBias;
+            if (Math.abs(imbalance) > 40) steer = imbalance > 0 ? -1 : 1;
+            else steer = (unit.lastMarchSteerDir || 1) * -1;
+        } else {
+            const returnDelta = baseY - unit.marchTargetY;
+            if (Math.abs(returnDelta) > 10) steer = Math.sign(returnDelta);
+        }
+
+        const nextTarget = steer === 0
+            ? unit.marchTargetY
+            : Math.min(maxY, Math.max(minY, Math.max(baseY - this.SERVER_MARCH_STEER_LIMIT, Math.min(baseY + this.SERVER_MARCH_STEER_LIMIT, unit.marchTargetY + steer * this.SERVER_MARCH_STEER_STEP))));
+        if (steer !== 0) unit.lastMarchSteerDir = steer;
+        unit.marchTargetY = Math.abs(nextTarget - baseY) < 4 && frontBlockers === 0 ? baseY : nextTarget;
+        unit.marchRetargetCooldown = frontBlockers > 0 ? this.SERVER_MARCH_STEER_INTERVAL : Math.max(4, Math.floor(this.SERVER_MARCH_STEER_INTERVAL * 0.5));
+        return unit.marchTargetY;
     }
 
     getServerFormationPosition(player: AnyObject, playerIndex: number, row = 0, column = 0): AnyObject {
@@ -747,6 +765,9 @@ export class MatchService {
             x: spawn.x,
             y: spawn.y,
             laneY: spawn.y,
+            marchTargetY: spawn.y,
+            marchRetargetCooldown: 0,
+            lastMarchSteerDir: 0,
             cooldown: 0,
             skillCooldown: 30,
             state: 'march',
@@ -1088,7 +1109,7 @@ export class MatchService {
                     ? Number(targetPoint.y || this.SERVER_LANE_Y)
                     : Number(unit.laneY || this.SERVER_LANE_Y);
                 const marchY = this.chooseServerMarchY(sim, unit, preferredY, dir);
-                unit.y += (marchY - Number(unit.y || this.SERVER_LANE_Y)) * (Number(unit.meta.range || 25) < 35 ? 0.18 : 0.1);
+                unit.y += (marchY - Number(unit.y || this.SERVER_LANE_Y)) * (Number(unit.meta.range || 25) < 35 ? 0.08 : 0.05);
                 this.clampServerUnitPosition(unit);
             }
         });

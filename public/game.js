@@ -744,7 +744,9 @@ const Game = (function() {
     const TILE = 20;
     const ROAD_HALF_WIDTH = 120;
     const laneOffsets = [-45, -35, -25, -15, -5, 5, 15, 25, 35, 45];
-    const MARCH_WIDTH_CANDIDATES = [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90];
+    const MARCH_STEER_INTERVAL = 10;
+    const MARCH_STEER_STEP = 12;
+    const MARCH_STEER_LIMIT = 64;
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const laneYFor = (slot = 0) => LANE_Y + laneOffsets[Math.abs(slot) % laneOffsets.length];
@@ -772,30 +774,47 @@ const Game = (function() {
     const getRoadMaxY = () => LANE_Y + ROAD_HALF_WIDTH - 12;
     const clampRoadY = (y) => clamp(y, getRoadMinY(), getRoadMaxY());
     const getBaseAttackLockTarget = (u) => getBaseTargetByKey(u.baseAttackLockKey, u.owner);
-    const chooseMarchY = (u, preferredY, dir) => {
-        const lookAheadX = u.x + dir * Math.max(18, Number(u.meta?.move_speed || 1) * 14);
-        let bestY = clampRoadY(preferredY);
-        let bestScore = Infinity;
+    const updateMarchTargetY = (u, preferredY, dir) => {
+        const baseY = clampRoadY(preferredY);
+        if (!Number.isFinite(u.marchTargetY)) u.marchTargetY = clampRoadY(u.y || baseY);
+        if ((u.marchRetargetCooldown || 0) > 0) {
+            u.marchRetargetCooldown--;
+            return u.marchTargetY;
+        }
 
-        MARCH_WIDTH_CANDIDATES.forEach(offset => {
-            const candidateY = clampRoadY(preferredY + offset);
-            let score = Math.abs(candidateY - preferredY) * 0.35;
-            units.forEach(other => {
-                if (other === u || other.hp <= 0) return;
-                const dx = other.x - lookAheadX;
-                const dy = other.y - candidateY;
-                if (Math.abs(dx) > 24 || Math.abs(dy) > 18) return;
-                const sameOwnerPenalty = other.owner === u.owner ? 120 : 90;
-                const aheadPenalty = dx * dir >= -8 ? 40 : 10;
-                score += sameOwnerPenalty + aheadPenalty + (24 - Math.abs(dx)) * 2 + (18 - Math.abs(dy)) * 2;
-            });
-            if (score < bestScore) {
-                bestScore = score;
-                bestY = candidateY;
-            }
+        const lookAheadX = u.x + dir * Math.max(16, Number(u.meta?.move_speed || 1) * 12);
+        let upperBias = 0;
+        let lowerBias = 0;
+        let frontBlockers = 0;
+        units.forEach(other => {
+            if (other === u || other.hp <= 0) return;
+            const dx = (other.x - u.x) * dir;
+            if (dx < -10 || dx > 28) return;
+            const dy = other.y - u.y;
+            if (Math.abs(dy) > 24) return;
+            frontBlockers++;
+            const weight = (32 - Math.min(32, dx + 10)) * (26 - Math.abs(dy));
+            if (dy <= 0) upperBias += weight * (other.owner === u.owner ? 1.15 : 0.85);
+            if (dy >= 0) lowerBias += weight * (other.owner === u.owner ? 1.15 : 0.85);
         });
 
-        return bestY;
+        let steer = 0;
+        if (frontBlockers > 0) {
+            const imbalance = lowerBias - upperBias;
+            if (Math.abs(imbalance) > 40) steer = imbalance > 0 ? -1 : 1;
+            else steer = (u.lastMarchSteerDir || 1) * -1;
+        } else {
+            const returnDelta = baseY - u.marchTargetY;
+            if (Math.abs(returnDelta) > 10) steer = Math.sign(returnDelta);
+        }
+
+        const nextTarget = steer === 0
+            ? u.marchTargetY
+            : clampRoadY(clamp(u.marchTargetY + steer * MARCH_STEER_STEP, baseY - MARCH_STEER_LIMIT, baseY + MARCH_STEER_LIMIT));
+        if (steer !== 0) u.lastMarchSteerDir = steer;
+        u.marchTargetY = Math.abs(nextTarget - baseY) < 4 && frontBlockers === 0 ? baseY : nextTarget;
+        u.marchRetargetCooldown = frontBlockers > 0 ? MARCH_STEER_INTERVAL : Math.max(4, Math.floor(MARCH_STEER_INTERVAL * 0.5));
+        return u.marchTargetY;
     };
     const setSeed = (seed) => {
         rngState = (Number(seed) >>> 0) || 1;
@@ -1574,7 +1593,7 @@ const Game = (function() {
         const spawn = getSpawnPoint(pIdx, playerUnitCount);
         const u = {
             id: `u${pIdx}_${frameCount}_${units.length}_${unitsPending.length}`, owner: pIdx, type: targetType, meta: { ...meta }, hp: meta.hp, maxHp: meta.hp, mana: meta.mana * 0.5, maxMana: meta.mana,
-            x: spawn.x, y: spawn.y, laneY: spawn.y, cooldown: 0, state: 'march', radius: 12, buffs: [], isPet: false, untargetableTimer: 0, lastAttacker: null, facing: pIdx === 0 ? 'right' : 'left', blockTimer: 0
+            x: spawn.x, y: spawn.y, laneY: spawn.y, marchTargetY: spawn.y, marchRetargetCooldown: 0, lastMarchSteerDir: 0, cooldown: 0, state: 'march', radius: 12, buffs: [], isPet: false, untargetableTimer: 0, lastAttacker: null, facing: pIdx === 0 ? 'right' : 'left', blockTimer: 0
         };
         unitsPending.push(u);
         queueOnlineEvent({ type: 'unit-spawn', unitId: u.id, unitType: targetType, owner: pIdx, x: u.x, y: u.y });
@@ -1648,6 +1667,9 @@ const Game = (function() {
             x: spawn.x,
             y: spawn.y,
             laneY: spawn.y,
+            marchTargetY: spawn.y,
+            marchRetargetCooldown: 0,
+            lastMarchSteerDir: 0,
             cooldown: 0,
             state: 'march',
             radius: 12,
@@ -1776,6 +1798,9 @@ const Game = (function() {
                 return {
                     ...entry,
                     laneY: Number(entry.y || 0),
+                    marchTargetY: Number.isFinite(Number(entry.marchTargetY)) ? Number(entry.marchTargetY) : Number(entry.y || 0),
+                    marchRetargetCooldown: Number(entry.marchRetargetCooldown || 0),
+                    lastMarchSteerDir: Number(entry.lastMarchSteerDir || 0),
                     meta: CLASSES[entry.type],
                     buffs: Array.isArray(entry.buffs) ? entry.buffs : [],
                     radius: Number(entry.radius || 12),
@@ -1797,6 +1822,9 @@ const Game = (function() {
                 x: Number(entry.x || 0),
                 y: Number(entry.y || 0),
                 laneY: Number(entry.y || 0),
+                marchTargetY: Number(entry.y || 0),
+                marchRetargetCooldown: 0,
+                lastMarchSteerDir: 0,
                 state: WIRE_STATE_TO_NAME[entry.s] || entry.s || 'idle',
                 radius: Number(entry.r || 12),
                 buffs: Array.isArray(entry.b) ? entry.b.map(decodeBuff).filter(Boolean) : [],
@@ -2246,8 +2274,8 @@ const Game = (function() {
                     const dir = Math.sign(tx - u.x) || getForwardDir(u.owner);
                     u.x += dir * u.meta.move_speed;
                     const followY = isMeleeUnit(u) && !target.base ? ty : (u.laneY || LANE_Y);
-                    const marchY = chooseMarchY(u, followY, dir);
-                    u.y += (marchY - u.y) * (isMeleeUnit(u) ? 0.18 : 0.1);
+                    const marchY = updateMarchTargetY(u, followY, dir);
+                    u.y += (marchY - u.y) * (isMeleeUnit(u) ? 0.08 : 0.05);
                     u.y = clampRoadY(u.y);
                     u.facing = dir > 0 ? 'right' : 'left';
                     u.state = 'march';
@@ -3245,7 +3273,7 @@ const Game = (function() {
                 id: `saved_${idx}_${frameCount}`,
                 y: Number.isFinite(Number(u.y)) ? Number(u.y) : laneYFor(idx),
                 laneY: Number.isFinite(Number(u.laneY ?? u.y)) ? Number(u.laneY ?? u.y) : laneYFor(idx),
-                radius: 12, buffs: [], isPet: false, untargetableTimer: 0, cooldown: 0, state: 'march', lastAttacker: null, facing: u.owner === 0 ? 'right' : 'left', blockTimer: 0, icemanPassiveTriggered: !!u.icemanPassiveTriggered, chilyProtectionTriggered: !!u.chilyProtectionTriggered
+                radius: 12, buffs: [], isPet: false, untargetableTimer: 0, cooldown: 0, state: 'march', lastAttacker: null, facing: u.owner === 0 ? 'right' : 'left', blockTimer: 0, marchTargetY: Number.isFinite(Number(u.marchTargetY)) ? Number(u.marchTargetY) : Number(u.laneY ?? u.y), marchRetargetCooldown: Number(u.marchRetargetCooldown || 0), lastMarchSteerDir: Number(u.lastMarchSteerDir || 0), icemanPassiveTriggered: !!u.icemanPassiveTriggered, chilyProtectionTriggered: !!u.chilyProtectionTriggered
             });
             });
             frameCount = state.frameCount || 0;
