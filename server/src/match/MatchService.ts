@@ -53,7 +53,10 @@ export class MatchService {
         dodge: 1,
         lifesteal: 2,
         crit_chance: 3,
-        phys_pen: 4
+        phys_pen: 4,
+        invulnerable: 5,
+        atk_speed_mult: 6,
+        no_mana_regen: 7
     };
     private readonly ANIM_ACTION_CODES: Record<string, number> = {
         idle: 0,
@@ -330,6 +333,9 @@ export class MatchService {
     }
 
     calculateServerDamage(sim: AnyObject, attacker: AnyObject, target: AnyObject, baseDmg: number, type: string): AnyObject {
+        if (target.chilyShieldUntil && target.chilyShieldUntil > sim.frame) {
+            return { amount: 0, dodged: false, isCrit: false };
+        }
         const dodge = target.meta ? Number(target.meta.dodge || 0) + (target.dodgeBoostUntil && target.dodgeBoostUntil > sim.frame ? 0.5 : 0) : 0;
         if (dodge > 0 && this.serverRng(sim) < dodge) {
             return { amount: 0, dodged: true, isCrit: false };
@@ -508,7 +514,10 @@ export class MatchService {
             ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
             ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
             ...(unit.critBoostUntil && unit.critBoostUntil > sim.frame ? [{ type: 'crit_chance', value: 0.5, duration: unit.critBoostUntil - sim.frame }] : []),
-            ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : [])
+            ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : []),
+            ...(unit.chilyShieldUntil && unit.chilyShieldUntil > sim.frame ? [{ type: 'invulnerable', value: 0, duration: unit.chilyShieldUntil - sim.frame }] : []),
+            ...(unit.chilyAttackSpeedUntil && unit.chilyAttackSpeedUntil > sim.frame ? [{ type: 'atk_speed_mult', value: 3, duration: unit.chilyAttackSpeedUntil - sim.frame }] : []),
+            ...(unit.chilyNoManaRegenUntil && unit.chilyNoManaRegenUntil > sim.frame ? [{ type: 'no_mana_regen', value: 0, duration: unit.chilyNoManaRegenUntil - sim.frame }] : [])
         ].map(buff => this.encodeWireBuff(buff));
 
         return {
@@ -968,13 +977,14 @@ export class MatchService {
             return true;
         }
 
-        if (lower.includes('chilygirl') && unit.mana >= 70 && target) {
+        if (lower.includes('chilygirl') && unit.mana >= 70) {
             unit.mana -= 70;
-            unit.skillCooldown = 240;
-            this.setServerAnim(unit, 'attack', sim.frame);
-            this.addServerProjectileVisual(match, unit, target, 'chily_big');
-            this.applyServerAreaDamage(match, unit, this.getServerTargetPoint(target), 60, Number(unit.meta.dmg || 1) * 3, 'true', 'big_chili');
-            this.addServerVfxVisual(match, this.getServerTargetPoint(target).x, this.getServerTargetPoint(target).y - 18, 'CHILI', '#fb7185');
+            unit.skillCooldown = 180;
+            unit.chilyShieldUntil = sim.frame + 180;
+            unit.chilyAttackSpeedUntil = sim.frame + 180;
+            unit.chilyNoManaRegenUntil = sim.frame + 180;
+            this.setServerAnim(unit, 'protect', sim.frame);
+            this.addServerVfxVisual(match, unit.x, unit.y - 24, 'SHIELD', '#fca5a5');
             return true;
         }
 
@@ -1058,7 +1068,9 @@ export class MatchService {
             if (unit.skillCooldown > 0) unit.skillCooldown -= 1;
             if (sim.frame % this.SERVER_MANA_REGEN_INTERVAL_FRAMES === 0) {
                 unit.hp = Math.min(unit.maxHp, unit.hp + 1);
-                unit.mana = Math.min(unit.maxMana, unit.mana + this.SERVER_MANA_REGEN_AMOUNT);
+                if (!unit.chilyNoManaRegenUntil || unit.chilyNoManaRegenUntil <= sim.frame) {
+                    unit.mana = Math.min(unit.maxMana, unit.mana + this.SERVER_MANA_REGEN_AMOUNT);
+                }
             }
             if (unit.frozenUntil && unit.frozenUntil > sim.frame) {
                 unit.state = 'frozen';
@@ -1092,7 +1104,8 @@ export class MatchService {
                 unit.behavior = 'engaging';
                 if (this.tryServerSkill(match, unit, target)) return;
                 if (unit.cooldown <= 0) {
-                    const atkSpeed = Math.max(0.1, Number(unit.meta.atk_speed || 1));
+                    const atkSpeedMult = unit.chilyAttackSpeedUntil && unit.chilyAttackSpeedUntil > sim.frame ? 3 : 1;
+                    const atkSpeed = Math.max(0.1, Number(unit.meta.atk_speed || 1) * atkSpeedMult);
                     unit.cooldown = Math.max(1, Math.floor(this.MATCH_FPS / atkSpeed));
                     unit.behavior = 'attacking';
                     this.setServerAnim(unit, this.getServerAttackAnim(unit), sim.frame);

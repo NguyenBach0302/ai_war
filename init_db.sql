@@ -65,14 +65,14 @@ INSERT IGNORE INTO units (name, icon, hp, mana, move_speed, `range`, dmg, atk_sp
     ('Bowman', '🏹', 100, 40, 1.2, 160, 12, 1.7, 45, 'Fast: +15% P-Pen for 3s', 'Debuffer', 'physical', 0, 10, 10, 0.15, 0, 0.1, 0),
     ('Gunman', '🔫', 110, 60, 0.9, 160, 45, 0.8, 90, 'Grenade: physical AoE 20px within 2x attack range', 'DPS', 'physical', 0.05, 15, 10, 0.05, 0, 0.1, 0),
     ('Iceman', '❄️', 100, 90, 1.2, 130, 12, 1.1, 60, 'Summon Frost: Freeze 3 nearest enemies and deal 20 true damage; passive freezes adjacent units below 50% HP', 'Control Mage', 'magic', 0, 10, 20, 0, 0.10, 0.1, 0),
-    ('ChilyGirl', '🌶️', 85, 100, 1.15, 150, 18, 1.2, 70, 'Big Chili: Throws a large chili that deals true damage in an area; passive gains +4 damage when an ally dies within 120 range', 'Magic Artillery', 'magic', 0, 8, 18, 0, 0.10, 0.1, 0),
+    ('ChilyGirl', '🌶️', 85, 100, 1.15, 25, 10, 2.5, 70, 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage', 'Melee Bruiser', 'physical', 0, 50, 50, 0, 0, 0.1, 0),
     ('Sniper', '🎯', 90, 100, 0.7, 300, 80, 0.5, 0, 'Long Range: High damage precision', 'Elite DPS', 'physical', 0.20, 10, 10, 0.30, 0, 0.1, 0);
 
 UPDATE units
 SET `range` = 25,
     dmg = 10,
     atk_speed = 2.5,
-    special = 'Immortal Body: Cannot lose HP for 3s, x2 attack speed, attacks deal +5 true damage; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
+    special = 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
     role = 'Melee Bruiser',
     dmg_type = 'physical',
     armor = 50,

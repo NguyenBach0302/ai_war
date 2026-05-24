@@ -57,7 +57,7 @@ const CHILYGIRL_UNIT = {
     dmg: 10,
     atk_speed: 2.5,
     cost: 70,
-    special: 'Immortal Body: Cannot lose HP for 3s, x2 attack speed, attacks deal +5 true damage; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
+    special: 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
     role: 'Melee Bruiser',
     dmg_type: 'physical',
     crit_chance: 0,

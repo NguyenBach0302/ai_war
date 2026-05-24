@@ -620,7 +620,10 @@ const Game = (function() {
         1: 'dodge',
         2: 'lifesteal',
         3: 'crit_chance',
-        4: 'phys_pen'
+        4: 'phys_pen',
+        5: 'invulnerable',
+        6: 'atk_speed_mult',
+        7: 'no_mana_regen'
     };
     const WIRE_ANIM_TO_NAME = {
         0: 'idle',
@@ -1326,15 +1329,15 @@ const Game = (function() {
 
     function castChilyGirlSkill(u) {
         u.mana -= 70;
-        u.buffs = u.buffs.filter(b => !['invulnerable', 'atk_speed_mult', 'bonus_true_damage'].includes(b.type));
+        u.buffs = u.buffs.filter(b => !['invulnerable', 'atk_speed_mult', 'no_mana_regen', 'bonus_true_damage'].includes(b.type));
         u.buffs.push(
             { type: 'invulnerable', duration: 180 },
-            { type: 'atk_speed_mult', value: 2, duration: 180 },
-            { type: 'bonus_true_damage', value: 5, duration: 180 }
+            { type: 'atk_speed_mult', value: 3, duration: 180 },
+            { type: 'no_mana_regen', duration: 180 }
         );
         startUnitAction(u, 'protect');
         spawnImpact(u.x, u.y, '#ef4444', 34);
-        spawnVFX(u.x, u.y - 22, 'IMMORTAL!', '#fca5a5');
+        spawnVFX(u.x, u.y - 22, 'SHIELD!', '#fca5a5');
         return true;
     }
 
