@@ -17,7 +17,8 @@ export class MatchService {
     private readonly SERVER_BASE_R = 62;
     private readonly SERVER_UNIT_SIZE = 10;
     private readonly SERVER_UNIT_HALF_SIZE = this.SERVER_UNIT_SIZE / 2;
-    private readonly SERVER_FORMATION_LANE_OFFSETS = [-18, -8, 8, 18, -28, 28];
+    private readonly SERVER_FORMATION_LANE_OFFSETS = [-45, -35, -25, -15, -5, 5, 15, 25, 35, 45];
+    private readonly SERVER_MARCH_WIDTH_CANDIDATES = [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90];
     private readonly SERVER_MAX_UNITS_PER_PLAYER = 50;
     private readonly SERVER_MANA_REGEN_INTERVAL_FRAMES = 60;
     private readonly SERVER_MANA_REGEN_AMOUNT = 4;
@@ -150,6 +151,34 @@ export class MatchService {
         const maxY = this.SERVER_LANE_Y + this.SERVER_ROAD_HALF_WIDTH - this.SERVER_UNIT_HALF_SIZE;
         unit.x = Math.min(maxX, Math.max(minX, Number(unit.x || 0)));
         unit.y = Math.min(maxY, Math.max(minY, Number.isFinite(Number(unit.y)) ? Number(unit.y) : this.SERVER_LANE_Y));
+    }
+
+    chooseServerMarchY(sim: AnyObject, unit: AnyObject, preferredY: number, dir: number): number {
+        const lookAheadX = Number(unit.x || 0) + dir * Math.max(18, Number(unit.meta?.move_speed || 1) * 14);
+        const minY = this.SERVER_LANE_Y - this.SERVER_ROAD_HALF_WIDTH + this.SERVER_UNIT_HALF_SIZE;
+        const maxY = this.SERVER_LANE_Y + this.SERVER_ROAD_HALF_WIDTH - this.SERVER_UNIT_HALF_SIZE;
+        let bestY = Math.min(maxY, Math.max(minY, Number(preferredY || this.SERVER_LANE_Y)));
+        let bestScore = Infinity;
+
+        this.SERVER_MARCH_WIDTH_CANDIDATES.forEach((offset: number) => {
+            const candidateY = Math.min(maxY, Math.max(minY, Number(preferredY || this.SERVER_LANE_Y) + offset));
+            let score = Math.abs(candidateY - Number(preferredY || this.SERVER_LANE_Y)) * 0.35;
+            sim.units.forEach((other: AnyObject) => {
+                if (other === unit || other.hp <= 0) return;
+                const dx = Number(other.x || 0) - lookAheadX;
+                const dy = Number(other.y || 0) - candidateY;
+                if (Math.abs(dx) > 24 || Math.abs(dy) > 18) return;
+                const sameOwnerPenalty = other.owner === unit.owner ? 120 : 90;
+                const aheadPenalty = dx * dir >= -8 ? 40 : 10;
+                score += sameOwnerPenalty + aheadPenalty + (24 - Math.abs(dx)) * 2 + (18 - Math.abs(dy)) * 2;
+            });
+            if (score < bestScore) {
+                bestScore = score;
+                bestY = candidateY;
+            }
+        });
+
+        return bestY;
     }
 
     getServerFormationPosition(player: AnyObject, playerIndex: number, row = 0, column = 0): AnyObject {
@@ -351,6 +380,7 @@ export class MatchService {
         if (!result.dodged) {
             target.hp -= result.amount;
             if (!target.base) target.lastAttacker = attacker.owner;
+            if (target.base && result.amount > 0) attacker.baseAttackLockOwner = target.id;
             const lifesteal = Number(attacker.meta?.lifesteal || 0) + (attacker.lifestealBoostUntil && attacker.lifestealBoostUntil > sim.frame ? 0.5 : 0);
             if (lifesteal > 0 && result.amount > 0) {
                 attacker.hp = Math.min(attacker.maxHp, attacker.hp + result.amount * lifesteal);
@@ -716,6 +746,7 @@ export class MatchService {
             maxMana: Number(meta.mana || 0),
             x: spawn.x,
             y: spawn.y,
+            laneY: spawn.y,
             cooldown: 0,
             skillCooldown: 30,
             state: 'march',
@@ -726,6 +757,7 @@ export class MatchService {
             behavior: 'spawn',
             currentTarget: null,
             targetDistance: 0,
+            baseAttackLockOwner: null,
             lastDamageDealt: null,
             lastDamageTaken: null
         };
@@ -741,6 +773,12 @@ export class MatchService {
     }
 
     findServerTarget(sim: AnyObject, unit: AnyObject): AnyObject {
+        if (Number.isInteger(unit.baseAttackLockOwner)) {
+            const lockedBase = sim.players.find((player: AnyObject) => !player.eliminated && player.id === unit.baseAttackLockOwner && player.id !== unit.owner && player.hp > 0);
+            if (lockedBase) return lockedBase;
+            unit.baseAttackLockOwner = null;
+        }
+
         const index = sim?.spatialIndex || this.buildServerSpatialIndex(sim);
         const enemies = index.byOwner[(unit.owner + 1) % index.byOwner.length] || [];
         let bestTarget: AnyObject = null;
@@ -1046,6 +1084,11 @@ export class MatchService {
                 unit.behavior = 'moving';
                 this.setServerAnim(unit, 'walk', sim.frame);
                 unit.x += dir * Number(unit.meta.move_speed || 1);
+                const preferredY = Number(unit.meta.range || 25) < 35 && !target.base
+                    ? Number(targetPoint.y || this.SERVER_LANE_Y)
+                    : Number(unit.laneY || this.SERVER_LANE_Y);
+                const marchY = this.chooseServerMarchY(sim, unit, preferredY, dir);
+                unit.y += (marchY - Number(unit.y || this.SERVER_LANE_Y)) * (Number(unit.meta.range || 25) < 35 ? 0.18 : 0.1);
                 this.clampServerUnitPosition(unit);
             }
         });

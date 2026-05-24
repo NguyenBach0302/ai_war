@@ -742,7 +742,9 @@ const Game = (function() {
     let cameraZoom = Math.max(MIN_CAMERA_ZOOM, Math.min(MAX_CAMERA_ZOOM, Number(localStorage.getItem('cameraZoom')) || 1));
 
     const TILE = 20;
-    const laneOffsets = [-18, -8, 8, 18, -28, 28];
+    const ROAD_HALF_WIDTH = 120;
+    const laneOffsets = [-45, -35, -25, -15, -5, 5, 15, 25, 35, 45];
+    const MARCH_WIDTH_CANDIDATES = [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90];
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const laneYFor = (slot = 0) => LANE_Y + laneOffsets[Math.abs(slot) % laneOffsets.length];
@@ -766,6 +768,35 @@ const Game = (function() {
     const getTargetRadius = (target) => target.base ? target.base.r : 0;
     const getTargetDistance = (u, target) => dist(u, { x: getTargetX(target), y: getTargetY(target) }) - getTargetRadius(target);
     const getTargetKey = (target) => target.base ? `base-${target.id}` : target.id;
+    const getRoadMinY = () => LANE_Y - ROAD_HALF_WIDTH + 12;
+    const getRoadMaxY = () => LANE_Y + ROAD_HALF_WIDTH - 12;
+    const clampRoadY = (y) => clamp(y, getRoadMinY(), getRoadMaxY());
+    const getBaseAttackLockTarget = (u) => getBaseTargetByKey(u.baseAttackLockKey, u.owner);
+    const chooseMarchY = (u, preferredY, dir) => {
+        const lookAheadX = u.x + dir * Math.max(18, Number(u.meta?.move_speed || 1) * 14);
+        let bestY = clampRoadY(preferredY);
+        let bestScore = Infinity;
+
+        MARCH_WIDTH_CANDIDATES.forEach(offset => {
+            const candidateY = clampRoadY(preferredY + offset);
+            let score = Math.abs(candidateY - preferredY) * 0.35;
+            units.forEach(other => {
+                if (other === u || other.hp <= 0) return;
+                const dx = other.x - lookAheadX;
+                const dy = other.y - candidateY;
+                if (Math.abs(dx) > 24 || Math.abs(dy) > 18) return;
+                const sameOwnerPenalty = other.owner === u.owner ? 120 : 90;
+                const aheadPenalty = dx * dir >= -8 ? 40 : 10;
+                score += sameOwnerPenalty + aheadPenalty + (24 - Math.abs(dx)) * 2 + (18 - Math.abs(dy)) * 2;
+            });
+            if (score < bestScore) {
+                bestScore = score;
+                bestY = candidateY;
+            }
+        });
+
+        return bestY;
+    };
     const setSeed = (seed) => {
         rngState = (Number(seed) >>> 0) || 1;
         fxRngState = (rngState ^ 0x9e3779b9) >>> 0 || 1;
@@ -836,6 +867,10 @@ const Game = (function() {
         return getBaseTargetByKey(u.currentTargetKey, u.owner);
     };
     const pickCombatTarget = (u) => {
+        const committedBaseTarget = getBaseAttackLockTarget(u);
+        if (committedBaseTarget) return committedBaseTarget;
+        u.baseAttackLockKey = null;
+
         if (isMeleeUnit(u)) {
             const baseFocusTarget = getBaseTargetByKey(u.baseFocusTargetKey, u.owner);
             if (baseFocusTarget) {
@@ -2025,6 +2060,10 @@ const Game = (function() {
                         if (!p.eliminated && p.id !== pr.owner && dist({ x: pr.tx, y: pr.ty }, p.base) <= p.base.r + pr.explosionRadius) {
                             const dmgRes = calculateDamage({ meta: pr.attackerMeta || { crit_chance: 0, phys_pen: 0, magic_pen: 0 }, buffs: pr.attackerBuffs || [] }, p, pr.dmg, pr.dmgType || 'physical');
                             p.hp -= dmgRes.amount;
+                            if (dmgRes.amount > 0) {
+                                const firer = units.find(un => un.id === pr.attackerId);
+                                if (firer) firer.baseAttackLockKey = getTargetKey(p);
+                            }
                             spawnVFX(pr.tx, pr.ty - 18, Math.floor(dmgRes.amount), '#fff');
                         }
                     });
@@ -2056,6 +2095,10 @@ const Game = (function() {
                     if (!p.eliminated && p.id !== pr.owner && dist(pr, p.base) <= p.base.r + 15) {
                         const dmgRes = calculateDamage({ meta: pr.attackerMeta || { crit_chance: 0, phys_pen: 0, magic_pen: 0 }, buffs: pr.attackerBuffs || [] }, p, pr.dmg, pr.dmgType);
                         p.hp -= dmgRes.amount;
+                        if (dmgRes.amount > 0) {
+                            const firer = units.find(un => un.id === pr.attackerId);
+                            if (firer) firer.baseAttackLockKey = getTargetKey(p);
+                        }
                         spawnImpact(pr.tx, pr.ty, dmgRes.isCrit ? '#ef4444' : pr.color, dmgRes.isCrit ? 34 : 24);
                         addParticle(pr.tx, pr.ty, dmgRes.isCrit ? '#ef4444' : pr.color, 14, 3);
                         spawnVFX(pr.tx, pr.ty, (dmgRes.isCrit ? '💥' : '') + Math.floor(dmgRes.amount), dmgRes.isCrit ? '#ff0000' : '#fff');
@@ -2167,6 +2210,7 @@ const Game = (function() {
                             const ls = u.meta.lifesteal + (u.buffs.find(b => b.type === 'lifesteal')?.value || 0);
                             const res = calculateDamage(u, target, u.meta.dmg, u.meta.dmg_type);
                             if (!res.dodged && !target.base) target.lastAttacker = u.owner;
+                            if (!res.dodged && target.base && res.amount > 0) u.baseAttackLockKey = getTargetKey(target);
                             if (res.dodged) spawnVFX(tx, ty, 'MISS', '#94a3b8');
                             else { target.hp -= res.amount; addParticle(tx, ty, res.isCrit ? '#ef4444' : players[u.owner].color.main, res.isCrit ? 14 : 7, res.isCrit ? 3 : 1.8); if (ls > 0) { const h = res.amount * ls; u.hp = Math.min(getEffectiveMaxHp(u), u.hp + h); spawnVFX(u.x, u.y, `+${Math.floor(h)}`, '#22c55e'); } spawnVFX(tx, ty, (res.isCrit?'💥':'')+Math.floor(res.amount), res.isCrit?'#ff0000':'#fff'); }
                         } else {
@@ -2202,7 +2246,9 @@ const Game = (function() {
                     const dir = Math.sign(tx - u.x) || getForwardDir(u.owner);
                     u.x += dir * u.meta.move_speed;
                     const followY = isMeleeUnit(u) && !target.base ? ty : (u.laneY || LANE_Y);
-                    u.y += (followY - u.y) * (isMeleeUnit(u) ? 0.16 : 0.08);
+                    const marchY = chooseMarchY(u, followY, dir);
+                    u.y += (marchY - u.y) * (isMeleeUnit(u) ? 0.18 : 0.1);
+                    u.y = clampRoadY(u.y);
                     u.facing = dir > 0 ? 'right' : 'left';
                     u.state = 'march';
                 }
