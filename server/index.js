@@ -25,6 +25,7 @@ const MATCH_BROADCAST_EVERY_FRAMES = 2;
 const SERVER_GOLD_RATE = 0.15;
 const SERVER_MAP_W = 2400;
 const SERVER_LANE_Y = 382;
+const SERVER_ROAD_HALF_WIDTH = 120;
 const SERVER_BASE_R = 62;
 const SERVER_UNIT_SIZE = 10;
 const SERVER_UNIT_HALF_SIZE = SERVER_UNIT_SIZE / 2;
@@ -171,42 +172,61 @@ function getServerSurfaceDistance(unit, target) {
 function clampServerUnitPosition(unit) {
     const minX = getServerBaseForPlayer(0).x + SERVER_BASE_R + SERVER_UNIT_HALF_SIZE;
     const maxX = getServerBaseForPlayer(1).x - SERVER_BASE_R - SERVER_UNIT_HALF_SIZE;
+    const minY = SERVER_LANE_Y - SERVER_ROAD_HALF_WIDTH + SERVER_UNIT_HALF_SIZE;
+    const maxY = SERVER_LANE_Y + SERVER_ROAD_HALF_WIDTH - SERVER_UNIT_HALF_SIZE;
     unit.x = Math.min(maxX, Math.max(minX, Number(unit.x || 0)));
-    unit.y = SERVER_LANE_Y;
+    unit.y = Math.min(maxY, Math.max(minY, Number(unit.y || SERVER_LANE_Y)));
 }
 
-function findServerSpawnX(sim, playerIndex) {
+function findServerSpawnPoint(sim, playerIndex) {
     const player = sim.players[playerIndex];
     const dir = getServerForwardDir(playerIndex);
-    let candidate = player.base.x + dir * (player.base.r + SERVER_UNIT_HALF_SIZE);
-    for (let attempts = 0; attempts < SERVER_MAX_UNITS_PER_PLAYER + 20; attempts++) {
-        const blocked = sim.units.some(other =>
-            Math.abs(Number(other.y || SERVER_LANE_Y) - SERVER_LANE_Y) < SERVER_UNIT_SIZE &&
-            Math.abs(Number(other.x || 0) - candidate) < SERVER_UNIT_SIZE
-        );
-        if (!blocked) return candidate;
-        candidate += dir * SERVER_UNIT_SIZE;
+    const x = player.base.x + dir * (player.base.r + SERVER_UNIT_HALF_SIZE);
+    const minY = SERVER_LANE_Y - SERVER_ROAD_HALF_WIDTH + SERVER_UNIT_HALF_SIZE;
+    const maxY = SERVER_LANE_Y + SERVER_ROAD_HALF_WIDTH - SERVER_UNIT_HALF_SIZE;
+    const slots = [SERVER_LANE_Y];
+    for (let step = SERVER_UNIT_SIZE; step <= SERVER_ROAD_HALF_WIDTH; step += SERVER_UNIT_SIZE) {
+        slots.push(SERVER_LANE_Y - step, SERVER_LANE_Y + step);
     }
-    return candidate;
+    for (const candidateY of slots) {
+        if (candidateY < minY || candidateY > maxY) continue;
+        const blocked = sim.units.some(other =>
+            Math.abs(Number(other.x || 0) - x) < SERVER_UNIT_SIZE &&
+            Math.abs(Number(other.y || SERVER_LANE_Y) - candidateY) < SERVER_UNIT_SIZE
+        );
+        if (!blocked) return { x, y: candidateY };
+    }
+    return { x, y: SERVER_LANE_Y };
 }
 
 function resolveServerUnitSpacing(sim) {
     if (!sim?.units?.length) return;
-    const minGap = SERVER_UNIT_SIZE;
-    for (let pass = 0; pass < 4; pass++) {
-        sim.units.sort((a, b) => Number(a.x || 0) - Number(b.x || 0));
+    for (let pass = 0; pass < 6; pass++) {
         let changed = false;
-        for (let i = 0; i < sim.units.length - 1; i++) {
-            const left = sim.units[i];
-            const right = sim.units[i + 1];
-            const gap = Number(right.x || 0) - Number(left.x || 0);
-            if (gap >= minGap) continue;
-            const overlap = minGap - gap;
-            left.x -= overlap / 2;
-            right.x += overlap / 2;
-            clampServerUnitPosition(left);
-            clampServerUnitPosition(right);
-            changed = true;
+        for (let i = 0; i < sim.units.length; i++) {
+            for (let j = i + 1; j < sim.units.length; j++) {
+                const a = sim.units[i];
+                const b = sim.units[j];
+                const dx = Number(b.x || 0) - Number(a.x || 0);
+                const dy = Number(b.y || 0) - Number(a.y || 0);
+                const overlapX = SERVER_UNIT_SIZE - Math.abs(dx);
+                const overlapY = SERVER_UNIT_SIZE - Math.abs(dy);
+                if (overlapX <= 0 || overlapY <= 0) continue;
+                if (overlapY <= overlapX) {
+                    const pushY = overlapY / 2 || SERVER_UNIT_HALF_SIZE;
+                    const signY = dy === 0 ? (a.owner <= b.owner ? -1 : 1) : Math.sign(dy);
+                    a.y -= signY * pushY;
+                    b.y += signY * pushY;
+                } else {
+                    const pushX = overlapX / 2 || SERVER_UNIT_HALF_SIZE;
+                    const signX = dx === 0 ? (a.owner <= b.owner ? -1 : 1) : Math.sign(dx);
+                    a.x -= signX * pushX;
+                    b.x += signX * pushX;
+                }
+                clampServerUnitPosition(a);
+                clampServerUnitPosition(b);
+                changed = true;
+            }
         }
         if (!changed) break;
     }
@@ -509,6 +529,7 @@ function spawnServerUnit(match, playerIndex, unitType) {
     if (player.gold < cost) return false;
     player.gold -= cost;
     const dir = getServerForwardDir(playerIndex);
+    const spawn = findServerSpawnPoint(sim, playerIndex);
     const unit = {
         id: `s${playerIndex}_${sim.nextUnitId++}`,
         owner: playerIndex,
@@ -518,8 +539,8 @@ function spawnServerUnit(match, playerIndex, unitType) {
         maxHp: Number(meta.hp || 1),
         mana: Number(meta.mana || 0) * 0.5,
         maxMana: Number(meta.mana || 0),
-        x: findServerSpawnX(sim, playerIndex),
-        y: SERVER_LANE_Y,
+        x: spawn.x,
+        y: spawn.y,
         cooldown: 0,
         skillCooldown: 30,
         state: 'march',

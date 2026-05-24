@@ -8,6 +8,9 @@ Source of truth used here:
 ## Architecture
 
 - The server is the authoritative simulator for online matches.
+- Coordinate model:
+  - `x` / `ox` is the horizontal axis and represents the length of the road.
+  - `y` / `oy` is the vertical axis and represents the width of the road.
 - The server advances the war by evaluating all unit statuses every frame: HP, mana, cooldowns, buffs, position, target, behavior, damage, and death state.
 - Each unit should be treated as occupying a `10 x 10` area in the simulation space.
 - Units should not overlap or override each other's occupied area.
@@ -77,6 +80,9 @@ Each unit inside `match-state.state.units[]` now carries live combat information
 | --- | --- |
 | Unit footprint | Every unit occupies a `10 x 10` area |
 | No overlap | One unit cannot override another unit's occupied area |
+| Horizontal axis | `x` is road length and is the direction units travel toward the enemy base |
+| Vertical axis | `y` is road width and is used to distribute units across the lane |
+| Formation arrangement | Units are arranged vertically across `y`, not packed horizontally along `x` |
 | Server responsibility | The server enforces spacing/collision because it is authoritative |
 | Client responsibility | The client should render positions received from the server and should not invent overlap resolution in online mode |
 
@@ -125,4 +131,4 @@ Recent server events are included in `match-state.events[]`. Damage events conta
 - `Sniper` cost is seeded as `0`, which makes it effectively free if bought directly from unit data. The code also has a separate evolution path where `Gunman` can become `Sniper`.
 - Client `applyUnitData()` assigns a generic `skillCost` of `30` to most units, but actual runtime mana thresholds vary by unit. Use the runtime values above when balancing behavior.
 - `match-state.events[]` now includes gameplay events plus visual events, so consumers should filter by `event.type` instead of assuming the list is visual-only.
-- Current implementation note: the authoritative server now enforces a `10 x 10` occupied-area spacing rule and exposes `footprint.width`, `footprint.height`, and `footprint.halfSize` in each unit payload. The client may still use a larger visual sprite size than the simulation footprint.
+- Current implementation note: the authoritative server now enforces a `10 x 10` occupied-area spacing rule, distributes units vertically along `y` within road width, and exposes `footprint.width`, `footprint.height`, and `footprint.halfSize` in each unit payload. The client may still use a larger visual sprite size than the simulation footprint.
