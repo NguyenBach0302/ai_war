@@ -635,6 +635,38 @@ const Game = (function() {
         9: 'protect',
         10: 'defend'
     };
+    const CLASS_ICON_DIRS = {
+        Assassin: 'assasin',
+        Gunman: 'gunner',
+        ChilyGirl: 'chilygirl'
+    };
+
+    function getClassAssetKey(unitName) {
+        return CLASS_ICON_DIRS[unitName] || String(unitName || '').toLowerCase();
+    }
+
+    function getClassIconSrc(unitName) {
+        return `/res/${getClassAssetKey(unitName)}/icon.png`;
+    }
+
+    function renderShopUnitButton(unitName) {
+        const unit = CLASSES[unitName];
+        const name = escapeHtml(unitName);
+        const role = escapeHtml(unit.role || 'Unit');
+        return `
+            <button class="unit-btn" id="btn-${name}" onclick="Game.buy('${name}')" title="${name} - ${role}">
+                <span class="u-portrait">
+                    <img class="u-icon" src="${getClassIconSrc(unitName)}" alt="${name}">
+                </span>
+                <span class="u-info">
+                    <span class="u-name">${name}</span>
+                    <span class="u-role">${role}</span>
+                </span>
+                <span class="u-cost">${Number(unit.cost || 0)}g</span>
+            </button>
+        `;
+    }
+
     function decodeBinaryMatchState(buffer) {
         const view = new DataView(buffer);
         let offset = 0;
@@ -3283,7 +3315,7 @@ const Game = (function() {
         }
 
         document.getElementById('deployment-hud').style.display = 'block';
-        document.getElementById('unit-buttons').innerHTML = Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0).map(k => `<button class="unit-btn" id="btn-${k}" onclick="Game.buy('${k}')"><span class="u-icon">${escapeHtml(CLASSES[k].icon)}</span><span class="u-name">${escapeHtml(k)}</span><span class="u-cost">${CLASSES[k].cost}g</span></button>`).join('');
+        document.getElementById('unit-buttons').innerHTML = Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0).map(renderShopUnitButton).join('');
         updateUnitButtons();
         const mapWrap = document.getElementById('map-wrap');
         if (mapWrap) mapWrap.onscroll = updateDeploymentHudPosition;

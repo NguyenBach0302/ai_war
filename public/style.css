@@ -270,16 +270,18 @@ canvas {
   bottom: 15px;
   left: 50%;
   transform: translateX(-50%);
-  background: linear-gradient(180deg, rgba(86, 57, 31, 0.98), rgba(47, 36, 23, 0.96));
-  border: 3px solid #c8914f;
-  padding: 8px;
-  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(7, 10, 18, 0.92)),
+    linear-gradient(90deg, rgba(200, 168, 75, 0.12), rgba(125, 212, 248, 0.06));
+  border: 1px solid rgba(200, 168, 75, 0.72);
+  padding: 10px;
+  border-radius: 6px;
   backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 0 0 2px #2f2417;
+  gap: 8px;
+  box-shadow: 0 16px 38px rgba(0,0,0,0.52), inset 0 1px 0 rgba(255,255,255,0.06);
   z-index: 50;
   max-width: 95%;
 }
@@ -294,25 +296,68 @@ canvas {
 }
 
 .unit-btn {
-  background: #7a4f2d;
-  border: 2px solid #2f2417;
-  color: #fff4c1;
-  padding: 8px;
-  border-radius: 0;
+  position: relative;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid rgba(200, 168, 75, 0.32);
+  color: var(--command-text, #f8fafc);
+  padding: 7px 7px 8px;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transition: all 0.2s;
-  min-width: 70px;
+  gap: 5px;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+  width: 82px;
+  min-width: 82px;
+  min-height: 116px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
-.unit-btn:hover:not(:disabled) { border-color: #f2c45d; background: #9a6738; transform: translateY(-3px); box-shadow: 0 6px 0 #2f2417; }
-.unit-btn:disabled { opacity: 0.3; filter: grayscale(1); }
-.unit-btn .u-icon { font-size: 22px; margin-bottom: 2px; filter: none; image-rendering: pixelated; }
-.unit-btn .u-name { font-weight: 600; font-size: 10px; text-transform: uppercase; }
-.unit-btn .u-cost { color: #f2c45d; font-weight: 700; font-size: 11px; }
+.unit-btn:hover:not(:disabled) { border-color: #f2c45d; background: rgba(200,168,75,0.12); transform: translateY(-3px); box-shadow: 0 10px 22px rgba(0,0,0,0.38), 0 0 18px rgba(200,168,75,0.18); }
+.unit-btn:disabled { opacity: 0.38; filter: grayscale(0.85); cursor: not-allowed; }
+.unit-btn:disabled .u-cost { color: #9ca3af; }
+.unit-btn .u-portrait {
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(200,168,75,0.38);
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 26%, rgba(248, 196, 93, 0.18), transparent 58%),
+    rgba(2, 6, 23, 0.66);
+  overflow: hidden;
+}
+.unit-btn .u-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 5px 7px rgba(0,0,0,0.45));
+  image-rendering: auto;
+}
+.unit-btn .u-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  width: 100%;
+}
+.unit-btn .u-name { font-weight: 700; font-size: 10px; line-height: 1.1; text-transform: uppercase; max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unit-btn .u-role { color: var(--command-muted, #94a3b8); font-size: 8px; line-height: 1.1; max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unit-btn .u-cost {
+  color: #f2c45d;
+  font-weight: 800;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.42);
+  border: 1px solid rgba(242,196,93,0.22);
+}
 
 /* OVERLAYS - HIDDEN BY DEFAULT */
 #auth-overlay, #setup-overlay, #resume-overlay, #victory-overlay, #admin-overlay {
@@ -1339,16 +1384,29 @@ canvas {
   }
 
   .unit-btn {
-    min-width: 56px;
+    width: 66px;
+    min-width: 66px;
+    min-height: 94px;
     padding: 5px;
   }
 
+  .unit-btn .u-portrait {
+    width: 42px;
+    height: 42px;
+  }
+
   .unit-btn .u-icon {
-    font-size: 18px;
+    width: 38px;
+    height: 38px;
   }
 
   .unit-btn .u-name {
     font-size: 9px;
+    max-width: 54px;
+  }
+
+  .unit-btn .u-role {
+    display: none;
   }
 }
 
@@ -1623,9 +1681,12 @@ canvas {
   }
 
   .unit-btn {
-    min-width: 48px;
-    padding: 3px 4px;
+    width: 54px;
+    min-width: 54px;
+    min-height: 76px;
+    padding: 4px;
     border-width: 1px;
+    gap: 3px;
   }
 
   .unit-btn:hover:not(:disabled) {
@@ -1634,21 +1695,31 @@ canvas {
   }
 
   .unit-btn .u-icon {
-    font-size: 15px;
-    margin-bottom: 0;
+    width: 28px;
+    height: 28px;
+  }
+
+  .unit-btn .u-portrait {
+    width: 32px;
+    height: 32px;
   }
 
   .unit-btn .u-name {
     font-size: 8px;
     line-height: 1;
-    max-width: 44px;
+    max-width: 46px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .unit-btn .u-role {
+    display: none;
   }
 
   .unit-btn .u-cost {
     font-size: 8px;
     line-height: 1.1;
+    padding: 2px 5px;
   }
 }
 
@@ -1697,12 +1768,20 @@ canvas {
   }
 
   .unit-btn {
-    min-width: 44px;
-    padding: 2px 3px;
+    width: 48px;
+    min-width: 48px;
+    min-height: 66px;
+    padding: 3px;
   }
 
   .unit-btn .u-icon {
-    font-size: 14px;
+    width: 24px;
+    height: 24px;
+  }
+
+  .unit-btn .u-portrait {
+    width: 28px;
+    height: 28px;
   }
 
   .unit-btn .u-name,
@@ -1793,23 +1872,31 @@ body.is-fullscreen canvas {
   }
 
   .unit-btn {
-    min-width: 36px;
-    height: 24px;
-    padding: 0 5px;
+    width: 46px;
+    min-width: 46px;
+    min-height: 48px;
+    height: auto;
+    padding: 3px;
     flex-direction: row;
     justify-content: center;
-    gap: 2px;
-    background: #7a4f2d;
-    border: 1px solid #2f2417;
-    color: #fff4c1;
+    gap: 3px;
+    background: rgba(0,0,0,0.46);
+    border: 1px solid rgba(200,168,75,0.36);
+    color: var(--command-text);
+  }
+
+  .unit-btn .u-portrait {
+    width: 25px;
+    height: 25px;
+    border-radius: 4px;
   }
 
   .unit-btn .u-icon {
-    font-size: 13px;
-    margin-bottom: 0;
+    width: 22px;
+    height: 22px;
   }
 
-  .unit-btn .u-name {
+  .unit-btn .u-info {
     display: none;
   }
 
@@ -1817,6 +1904,7 @@ body.is-fullscreen canvas {
     font-size: 8px;
     line-height: 1;
     color: #f2c45d;
+    padding: 2px 4px;
   }
 }
 
@@ -1835,9 +1923,10 @@ body.is-fullscreen canvas {
   }
 
   .unit-btn {
-    min-width: 34px;
-    height: 23px;
-    padding: 0 4px;
+    width: 42px;
+    min-width: 42px;
+    min-height: 44px;
+    padding: 2px;
   }
 }
 
