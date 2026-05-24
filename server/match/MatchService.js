@@ -76,9 +76,14 @@ class MatchService {
     sendMatchEvent(match, event, payload) {
         const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
         match.clients.forEach(client => client.write(data));
-        const wsData = JSON.stringify({ event, payload });
         (match.wsClients || new Map()).forEach(socket => {
-            if (socket.readyState === this.WebSocket.OPEN) socket.send(wsData);
+            if (socket.readyState !== this.WebSocket.OPEN) return;
+            if (event === 'match-state') {
+                socket.send(this.encodeBinaryMatchState(payload));
+                return;
+            }
+            const wsData = JSON.stringify({ event, payload });
+            socket.send(wsData);
         });
     }
 
@@ -465,6 +470,87 @@ class MatchService {
         };
     }
 
+    parseWireUnitId(unitId, ownerFallback = 0) {
+        const text = String(unitId || '');
+        const match = /^s(\d+)_(\d+)$/.exec(text);
+        if (!match) return { owner: ownerFallback, index: 0 };
+        return {
+            owner: Number(match[1] || ownerFallback),
+            index: Number(match[2] || 0)
+        };
+    }
+
+    getBinaryUnitSize(unit) {
+        const buffCount = Array.isArray(unit.b) ? unit.b.length : 0;
+        return 33 + (buffCount * 6);
+    }
+
+    encodeBinaryMatchState(payload) {
+        const state = payload?.state || {};
+        const players = Array.isArray(state.p) ? state.p : [];
+        const units = Array.isArray(state.u) ? state.u : [];
+        const removed = Array.isArray(state.r) ? state.r : [];
+        let totalSize = 1 + 4 + 4 + 8 + 1 + 1 + 2 + 2;
+        totalSize += players.length * 14;
+        totalSize += removed.length * 5;
+        units.forEach(unit => {
+            totalSize += this.getBinaryUnitSize(unit);
+        });
+
+        const buffer = Buffer.allocUnsafe(totalSize);
+        const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        let offset = 0;
+        view.setUint8(offset, state.m === 'd' ? 1 : 0); offset += 1;
+        view.setUint32(offset, Number(payload.seq || 0)); offset += 4;
+        view.setUint32(offset, Number(state.fc || payload.frame || 0)); offset += 4;
+        view.setFloat64(offset, Number(payload.serverNow || Date.now())); offset += 8;
+        view.setUint8(offset, players.length); offset += 1;
+        view.setUint8(offset, units.length); offset += 1;
+        view.setUint16(offset, removed.length); offset += 2;
+        view.setUint16(offset, Number(payload.frame || 0)); offset += 2;
+
+        players.forEach(player => {
+            view.setUint8(offset, Number(player.i || 0)); offset += 1;
+            view.setFloat32(offset, Number(player.g || 0)); offset += 4;
+            view.setFloat32(offset, Number(player.h || 0)); offset += 4;
+            view.setFloat32(offset, Number(player.H || 0)); offset += 4;
+            view.setUint8(offset, Number(player.e || 0)); offset += 1;
+        });
+
+        removed.forEach(unitId => {
+            const parsed = this.parseWireUnitId(unitId);
+            view.setUint8(offset, parsed.owner); offset += 1;
+            view.setUint32(offset, parsed.index); offset += 4;
+        });
+
+        units.forEach(unit => {
+            const parsed = this.parseWireUnitId(unit.i, unit.o);
+            const buffs = Array.isArray(unit.b) ? unit.b : [];
+            view.setUint8(offset, parsed.owner); offset += 1;
+            view.setUint32(offset, parsed.index); offset += 4;
+            view.setUint8(offset, Number(unit.t || 0)); offset += 1;
+            view.setFloat32(offset, Number(unit.h || 0)); offset += 4;
+            view.setFloat32(offset, Number(unit.H || 0)); offset += 4;
+            view.setFloat32(offset, Number(unit.m || 0)); offset += 4;
+            view.setFloat32(offset, Number(unit.M || 0)); offset += 4;
+            view.setFloat32(offset, Number(unit.x || 0)); offset += 4;
+            view.setFloat32(offset, Number(unit.y || 0)); offset += 4;
+            view.setUint8(offset, Number(unit.s || 0)); offset += 1;
+            view.setUint8(offset, Number(unit.r || 0)); offset += 1;
+            view.setUint8(offset, Number(unit.f || 0)); offset += 1;
+            view.setUint8(offset, Number(unit.a || 0)); offset += 1;
+            view.setUint16(offset, Number(unit.z || 0)); offset += 2;
+            view.setUint8(offset, buffs.length); offset += 1;
+            buffs.forEach(buff => {
+                view.setUint8(offset, Number(buff.t || 0)); offset += 1;
+                view.setFloat32(offset, Number(buff.v || 0)); offset += 4;
+                view.setUint8(offset, Math.max(0, Math.min(255, Number(buff.d || 0)))); offset += 1;
+            });
+        });
+
+        return buffer;
+    }
+
     serializeServerSim(match) {
         const sim = match.sim;
         return {
@@ -535,6 +621,9 @@ class MatchService {
         if (!match.sim) return;
         const payload = this.createBroadcastPayload(match);
         this.sendMatchEvent(match, 'match-state', payload);
+        if (Array.isArray(payload.events) && payload.events.length) {
+            this.sendMatchEvent(match, 'match-events', payload.events);
+        }
     }
 
     endServerMatch(match, reason = 'finished') {
@@ -581,6 +670,9 @@ class MatchService {
                 match.sim.seq += 1;
                 statePayload = this.createBroadcastPayload(match);
                 this.sendMatchEvent(match, 'match-state', statePayload);
+                if (Array.isArray(statePayload.events) && statePayload.events.length) {
+                    this.sendMatchEvent(match, 'match-events', statePayload.events);
+                }
             }
         }
         this.sendMatchEvent(match, 'match-action', payload);
@@ -1207,7 +1299,10 @@ class MatchService {
         if (match.started) {
             socket.send(JSON.stringify({ event: 'match-start', payload: this.getMatchPayload(match, decoded.id) }));
             (match.actionLog || []).forEach(action => socket.send(JSON.stringify({ event: 'match-action', payload: action })));
-            if (match.stateSnapshot) socket.send(JSON.stringify({ event: 'match-state', payload: match.stateSnapshot }));
+            if (match.stateSnapshot) socket.send(this.encodeBinaryMatchState(match.stateSnapshot));
+            if (match.stateSnapshot?.events?.length) {
+                socket.send(JSON.stringify({ event: 'match-events', payload: match.stateSnapshot.events }));
+            }
         }
 
         socket.on('message', raw => {

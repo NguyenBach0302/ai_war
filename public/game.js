@@ -296,6 +296,10 @@ const Online = (function() {
             Game.applyAuthoritativeState(payload);
             return;
         }
+        if (eventName === 'match-events') {
+            Game.applyAuthoritativeEvents(Array.isArray(payload) ? payload : []);
+            return;
+        }
         if (eventName === 'match-visual') {
             Game.applyServerVisual(payload);
             return;
@@ -325,9 +329,14 @@ const Online = (function() {
         const token = encodeURIComponent(Auth.getToken());
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         socket = new WebSocket(`${protocol}//${location.host}/api/match/ws?matchId=${encodeURIComponent(matchId)}&token=${token}`);
+        socket.binaryType = 'arraybuffer';
         socket.onopen = () => setStatus('Online socket connected.');
         socket.onmessage = event => {
             try {
+                if (event.data instanceof ArrayBuffer) {
+                    handleRealtimeEvent('match-state', Game.decodeBinaryMatchState(event.data));
+                    return;
+                }
                 const data = JSON.parse(event.data);
                 handleRealtimeEvent(data.event, data.payload);
             } catch (err) {
@@ -342,6 +351,7 @@ const Online = (function() {
             source.addEventListener('match-action', event => handleRealtimeEvent('match-action', JSON.parse(event.data)));
             source.addEventListener('match-sync', event => handleRealtimeEvent('match-sync', JSON.parse(event.data)));
             source.addEventListener('match-state', event => handleRealtimeEvent('match-state', JSON.parse(event.data)));
+            source.addEventListener('match-events', event => handleRealtimeEvent('match-events', JSON.parse(event.data || '[]')));
             source.addEventListener('match-visual', event => handleRealtimeEvent('match-visual', JSON.parse(event.data)));
             source.addEventListener('player-disconnected', event => handleRealtimeEvent('player-disconnected', JSON.parse(event.data || '{}')));
             source.addEventListener('match-ended', event => handleRealtimeEvent('match-ended', JSON.parse(event.data || '{}')));
@@ -613,6 +623,97 @@ const Game = (function() {
         9: 'protect',
         10: 'defend'
     };
+    function decodeBinaryMatchState(buffer) {
+        const view = new DataView(buffer);
+        let offset = 0;
+        const mode = view.getUint8(offset); offset += 1;
+        const seq = view.getUint32(offset); offset += 4;
+        const frameCount = view.getUint32(offset); offset += 4;
+        const serverNow = view.getFloat64(offset); offset += 8;
+        const playerCount = view.getUint8(offset); offset += 1;
+        const unitCount = view.getUint8(offset); offset += 1;
+        const removedCount = view.getUint16(offset); offset += 2;
+        const frame = view.getUint16(offset); offset += 2;
+        const players = [];
+        const removed = [];
+        const units = [];
+
+        for (let i = 0; i < playerCount; i++) {
+            players.push({
+                i: view.getUint8(offset),
+                g: view.getFloat32(offset + 1),
+                h: view.getFloat32(offset + 5),
+                H: view.getFloat32(offset + 9),
+                e: view.getUint8(offset + 13)
+            });
+            offset += 14;
+        }
+
+        for (let i = 0; i < removedCount; i++) {
+            const owner = view.getUint8(offset); offset += 1;
+            const index = view.getUint32(offset); offset += 4;
+            removed.push(`s${owner}_${index}`);
+        }
+
+        for (let i = 0; i < unitCount; i++) {
+            const owner = view.getUint8(offset); offset += 1;
+            const index = view.getUint32(offset); offset += 4;
+            const type = view.getUint8(offset); offset += 1;
+            const hp = view.getFloat32(offset); offset += 4;
+            const maxHp = view.getFloat32(offset); offset += 4;
+            const mana = view.getFloat32(offset); offset += 4;
+            const maxMana = view.getFloat32(offset); offset += 4;
+            const x = view.getFloat32(offset); offset += 4;
+            const y = view.getFloat32(offset); offset += 4;
+            const state = view.getUint8(offset); offset += 1;
+            const radius = view.getUint8(offset); offset += 1;
+            const facing = view.getUint8(offset); offset += 1;
+            const anim = view.getUint8(offset); offset += 1;
+            const animStartedAt = view.getUint16(offset); offset += 2;
+            const buffCount = view.getUint8(offset); offset += 1;
+            const buffs = [];
+
+            for (let j = 0; j < buffCount; j++) {
+                buffs.push({
+                    t: view.getUint8(offset),
+                    v: view.getFloat32(offset + 1),
+                    d: view.getUint8(offset + 5)
+                });
+                offset += 6;
+            }
+
+            units.push({
+                i: `s${owner}_${index}`,
+                o: owner,
+                t: type,
+                h: hp,
+                H: maxHp,
+                m: mana,
+                M: maxMana,
+                x,
+                y,
+                s: state,
+                r: radius,
+                b: buffs,
+                f: facing,
+                a: anim,
+                z: animStartedAt
+            });
+        }
+
+        return {
+            seq,
+            frame,
+            serverNow,
+            state: {
+                m: mode === 1 ? 'd' : 'f',
+                fc: frameCount,
+                p: players,
+                u: units,
+                r: removed
+            }
+        };
+    }
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
     const MELEE_BASE_INTERCEPT_DISTANCE = 220;
@@ -1694,13 +1795,7 @@ const Game = (function() {
         }
 
         synthesizeAuthoritativeProjectiles(previousUnits);
-        if (Array.isArray(payload.events)) {
-            payload.events.forEach(event => {
-                if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
-                if (event.type === 'unit-spawn') log(`${players[event.owner]?.name || 'Player'} deployed ${event.unitType}`, players[event.owner]?.color?.main || '#fff');
-                if (event.type === 'projectile' || event.type === 'vfx') applyServerVisual(event);
-            });
-        }
+        if (Array.isArray(payload.events)) applyAuthoritativeEvents(payload.events);
         const activePlayers = players.filter(p => !p.eliminated);
         if (players[localPlayerIndex]?.eliminated || activePlayers.length <= 1) {
             running = false;
@@ -1714,6 +1809,15 @@ const Game = (function() {
                 vText.style.color = won ? 'var(--success)' : 'var(--danger)';
             }
         }
+    }
+
+    function applyAuthoritativeEvents(events) {
+        if (!Array.isArray(events)) return;
+        events.forEach(event => {
+            if (event.type === 'unit-death') log(`${event.unitType} fell`, '#f43f5e');
+            if (event.type === 'unit-spawn') log(`${players[event.owner]?.name || 'Player'} deployed ${event.unitType}`, players[event.owner]?.color?.main || '#fff');
+            if (event.type === 'projectile' || event.type === 'vfx') applyServerVisual(event);
+        });
     }
 
     function spawnClientProjectile(event) {
@@ -3133,7 +3237,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
 })();
 
 window.UI = UI;
