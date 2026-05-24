@@ -4,12 +4,16 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "build:server": "tsc -p tsconfig.json",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
   "dependencies": {
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",

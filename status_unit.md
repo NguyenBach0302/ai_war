@@ -14,7 +14,7 @@ Source of truth used here:
 - The server advances the war by evaluating all unit statuses every frame: HP, mana, cooldowns, buffs, position, target, behavior, damage, and death state.
 - Each unit should be treated as occupying a `10 x 10` area in the simulation space.
 - Units should not overlap or override each other's occupied area.
-- Units are currently arranged in a horizontal formation on the road center line.
+- Units are arranged widthwise across the road first, then expand lengthwise only after width slots are filled.
 - The server decides movement, targeting, skill usage, attacks, damage resolution, and elimination results.
 - The client does not decide authoritative combat results in online mode.
 - The client receives `match-state` payloads from the server, reads the full unit status list, and renders the battlefield, animations, projectiles, logs, and UI for the user.
@@ -83,7 +83,7 @@ Each unit inside `match-state.state.units[]` now carries live combat information
 | No overlap | One unit cannot override another unit's occupied area |
 | Horizontal axis | `x` is road length and is the direction units travel toward the enemy base |
 | Vertical axis | `y` is road width and is used to distribute units across the lane |
-| Formation arrangement | Units are arranged horizontally along `x` on the road center line |
+| Formation arrangement | Units fill width slots along `y` first, then add new rows along `x` |
 | Spacing formula | Distance between units uses Euclidean distance: `sqrt(dx^2 + dy^2)` |
 | Server responsibility | The server enforces spacing/collision because it is authoritative |
 | Client responsibility | The client should render positions received from the server and should not invent overlap resolution in online mode |
@@ -133,4 +133,4 @@ Recent server events are included in `match-state.events[]`. Damage events conta
 - `Sniper` cost is seeded as `0`, which makes it effectively free if bought directly from unit data. The code also has a separate evolution path where `Gunman` can become `Sniper`.
 - Client `applyUnitData()` assigns a generic `skillCost` of `30` to most units, but actual runtime mana thresholds vary by unit. Use the runtime values above when balancing behavior.
 - `match-state.events[]` now includes gameplay events plus visual events, so consumers should filter by `event.type` instead of assuming the list is visual-only.
-- Current implementation note: the authoritative server now enforces a `10 x 10` occupied-area spacing rule, keeps units on the road center line, resolves spacing with Euclidean distance, and exposes `footprint.width`, `footprint.height`, and `footprint.halfSize` in each unit payload. The client may still use a larger visual sprite size than the simulation footprint.
+- Current implementation note: the authoritative server now enforces a `10 x 10` occupied-area spacing rule, preserves widthwise lane offsets within the road, resolves spacing with Euclidean distance, and exposes `footprint.width`, `footprint.height`, and `footprint.halfSize` in each unit payload. The client may still use a larger visual sprite size than the simulation footprint.

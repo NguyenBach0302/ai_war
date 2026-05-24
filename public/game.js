@@ -533,6 +533,7 @@ const Game = (function() {
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
     const laneYFor = (slot = 0) => LANE_Y + laneOffsets[Math.abs(slot) % laneOffsets.length];
+    const spawnRowFor = (slot = 0) => Math.floor(Math.abs(slot) / laneOffsets.length);
     const getBaseForPlayer = (idx) => ({
         x: idx === 0 ? 130 : MAP_W - 130,
         y: LANE_Y,
@@ -541,8 +542,9 @@ const Game = (function() {
     const getForwardDir = (owner) => owner === 0 ? 1 : -1;
     const getSpawnPoint = (owner, slot = 0) => {
         const base = players[owner]?.base || getBaseForPlayer(owner);
+        const row = spawnRowFor(slot);
         return {
-            x: base.x + getForwardDir(owner) * (base.r + 14),
+            x: base.x + getForwardDir(owner) * (base.r + 14 + row * 10),
             y: laneYFor(slot)
         };
     };
@@ -2858,8 +2860,8 @@ const Game = (function() {
                 type,
                 meta: { ...CLASSES[type] },
                 id: `saved_${idx}_${frameCount}`,
-                y: laneYFor(idx),
-                laneY: laneYFor(idx),
+                y: Number.isFinite(Number(u.y)) ? Number(u.y) : laneYFor(idx),
+                laneY: Number.isFinite(Number(u.laneY ?? u.y)) ? Number(u.laneY ?? u.y) : laneYFor(idx),
                 radius: 12, buffs: [], isPet: false, untargetableTimer: 0, cooldown: 0, state: 'march', lastAttacker: null, facing: u.owner === 0 ? 'right' : 'left', blockTimer: 0, icemanPassiveTriggered: !!u.icemanPassiveTriggered, chilyProtectionTriggered: !!u.chilyProtectionTriggered
             });
             });
