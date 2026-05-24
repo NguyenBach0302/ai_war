@@ -26,6 +26,8 @@ const SERVER_GOLD_RATE = 0.15;
 const SERVER_MAP_W = 2400;
 const SERVER_LANE_Y = 382;
 const SERVER_BASE_R = 62;
+const SERVER_UNIT_SIZE = 10;
+const SERVER_UNIT_HALF_SIZE = SERVER_UNIT_SIZE / 2;
 const SERVER_MAX_UNITS_PER_PLAYER = 50;
 const SERVER_MANA_REGEN_INTERVAL_FRAMES = 60;
 const SERVER_MANA_REGEN_AMOUNT = 4;
@@ -153,6 +155,63 @@ function serverDist(a, b) {
     return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function getServerUnitHalfSize() {
+    return SERVER_UNIT_HALF_SIZE;
+}
+
+function getServerTargetRadius(target) {
+    return target?.base ? Number(target.base.r || SERVER_BASE_R) : getServerUnitHalfSize();
+}
+
+function getServerSurfaceDistance(unit, target) {
+    const point = getServerTargetPoint(target);
+    return Math.max(0, serverDist(unit, point) - getServerUnitHalfSize() - getServerTargetRadius(target));
+}
+
+function clampServerUnitPosition(unit) {
+    const minX = getServerBaseForPlayer(0).x + SERVER_BASE_R + SERVER_UNIT_HALF_SIZE;
+    const maxX = getServerBaseForPlayer(1).x - SERVER_BASE_R - SERVER_UNIT_HALF_SIZE;
+    unit.x = Math.min(maxX, Math.max(minX, Number(unit.x || 0)));
+    unit.y = SERVER_LANE_Y;
+}
+
+function findServerSpawnX(sim, playerIndex) {
+    const player = sim.players[playerIndex];
+    const dir = getServerForwardDir(playerIndex);
+    let candidate = player.base.x + dir * (player.base.r + SERVER_UNIT_HALF_SIZE);
+    for (let attempts = 0; attempts < SERVER_MAX_UNITS_PER_PLAYER + 20; attempts++) {
+        const blocked = sim.units.some(other =>
+            Math.abs(Number(other.y || SERVER_LANE_Y) - SERVER_LANE_Y) < SERVER_UNIT_SIZE &&
+            Math.abs(Number(other.x || 0) - candidate) < SERVER_UNIT_SIZE
+        );
+        if (!blocked) return candidate;
+        candidate += dir * SERVER_UNIT_SIZE;
+    }
+    return candidate;
+}
+
+function resolveServerUnitSpacing(sim) {
+    if (!sim?.units?.length) return;
+    const minGap = SERVER_UNIT_SIZE;
+    for (let pass = 0; pass < 4; pass++) {
+        sim.units.sort((a, b) => Number(a.x || 0) - Number(b.x || 0));
+        let changed = false;
+        for (let i = 0; i < sim.units.length - 1; i++) {
+            const left = sim.units[i];
+            const right = sim.units[i + 1];
+            const gap = Number(right.x || 0) - Number(left.x || 0);
+            if (gap >= minGap) continue;
+            const overlap = minGap - gap;
+            left.x -= overlap / 2;
+            right.x += overlap / 2;
+            clampServerUnitPosition(left);
+            clampServerUnitPosition(right);
+            changed = true;
+        }
+        if (!changed) break;
+    }
+}
+
 function getServerTargetPoint(target) {
     return target.base ? target.base : target;
 }
@@ -195,6 +254,31 @@ function pushServerEvent(match, event) {
     return payload;
 }
 
+function snapshotServerTarget(target) {
+    if (!target) return null;
+    const point = getServerTargetPoint(target);
+    return {
+        id: target.id ?? `base-${target.id}`,
+        type: target.type || 'Base',
+        owner: target.owner ?? target.id ?? null,
+        x: Number(point?.x || 0),
+        y: Number(point?.y || 0),
+        hp: Number(target.hp || 0),
+        maxHp: Number(target.maxHp || 0),
+        radius: getServerTargetRadius(target),
+        isBase: !!target.base
+    };
+}
+
+function getRecentServerEvents(sim, limit = 80) {
+    if (!sim) return [];
+    const gameplayEvents = sim.eventHistory.slice(-limit);
+    const visualEvents = sim.pendingVisualEvents.slice(-limit);
+    return [...gameplayEvents, ...visualEvents]
+        .sort((a, b) => Number(a.frame || 0) - Number(b.frame || 0))
+        .slice(-limit);
+}
+
 function applyServerDamage(match, attacker, target, baseDmg, type, skill = null) {
     const sim = match.sim;
     const result = calculateServerDamage(sim, attacker, target, baseDmg, type);
@@ -206,18 +290,46 @@ function applyServerDamage(match, attacker, target, baseDmg, type, skill = null)
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + result.amount * lifesteal);
         }
     }
-    pushServerEvent(match, {
+    const event = pushServerEvent(match, {
         type: 'damage',
         attackerId: attacker.id,
         attackerType: attacker.type,
+        attackerOwner: attacker.owner,
         targetId: target.id ?? `base-${target.id}`,
         targetType: target.type || 'Base',
+        targetOwner: target.owner ?? target.id ?? null,
+        amount: result.amount,
+        damageType: type,
+        dodged: result.dodged,
+        crit: result.isCrit,
+        skill,
+        attackerX: Number(attacker.x || 0),
+        attackerY: Number(attacker.y || 0),
+        targetX: Number(getServerTargetPoint(target)?.x || 0),
+        targetY: Number(getServerTargetPoint(target)?.y || 0)
+    });
+    attacker.lastDamageDealt = {
+        frame: sim.frame,
+        targetId: event.targetId,
+        targetType: event.targetType,
         amount: result.amount,
         damageType: type,
         dodged: result.dodged,
         crit: result.isCrit,
         skill
-    });
+    };
+    if (!target.base) {
+        target.lastDamageTaken = {
+            frame: sim.frame,
+            attackerId: attacker.id,
+            attackerType: attacker.type,
+            amount: result.amount,
+            damageType: type,
+            dodged: result.dodged,
+            crit: result.isCrit,
+            skill
+        };
+    }
     return result;
 }
 
@@ -282,7 +394,8 @@ function serializeServerSim(match) {
                 laneY: unit.y,
                 cooldown: unit.cooldown,
                 state: unit.state,
-                radius: 12,
+                behavior: unit.behavior || unit.state,
+                radius: getServerUnitHalfSize(),
                 buffs: [
                     ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
                     ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
@@ -294,13 +407,34 @@ function serializeServerSim(match) {
                 facing: unit.facing,
                 blockTimer: 0,
                 animAction: unit.animAction,
-                animStartedAt: unit.animStartedAt
+                animStartedAt: unit.animStartedAt,
+                position: {
+                    x: unit.x,
+                    y: unit.y,
+                    laneY: unit.y
+                },
+                footprint: {
+                    width: SERVER_UNIT_SIZE,
+                    height: SERVER_UNIT_SIZE,
+                    halfSize: SERVER_UNIT_HALF_SIZE
+                },
+                target: unit.currentTarget || null,
+                targetDistance: Number(unit.targetDistance || 0),
+                stats: {
+                    moveSpeed: Number(unit.meta?.move_speed || 0),
+                    range: Number(unit.meta?.range || 0),
+                    damage: Number(unit.meta?.dmg || 0),
+                    attackSpeed: Number(unit.meta?.atk_speed || 0),
+                    damageType: unit.meta?.dmg_type || 'physical'
+                },
+                lastDamageDealt: unit.lastDamageDealt || null,
+                lastDamageTaken: unit.lastDamageTaken || null
             })),
             projectiles: [],
             vfx: [],
             floatingTexts: []
         },
-        events: sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length)
+        events: getRecentServerEvents(sim)
     };
 }
 
@@ -384,7 +518,7 @@ function spawnServerUnit(match, playerIndex, unitType) {
         maxHp: Number(meta.hp || 1),
         mana: Number(meta.mana || 0) * 0.5,
         maxMana: Number(meta.mana || 0),
-        x: player.base.x + dir * (player.base.r + 14),
+        x: findServerSpawnX(sim, playerIndex),
         y: SERVER_LANE_Y,
         cooldown: 0,
         skillCooldown: 30,
@@ -392,8 +526,14 @@ function spawnServerUnit(match, playerIndex, unitType) {
         animAction: 'idle',
         animStartedAt: sim.frame,
         facing: dir > 0 ? 'right' : 'left',
-        lastAttacker: null
+        lastAttacker: null,
+        behavior: 'spawn',
+        currentTarget: null,
+        targetDistance: 0,
+        lastDamageDealt: null,
+        lastDamageTaken: null
     };
+    clampServerUnitPosition(unit);
     sim.units.push(unit);
     const event = { type: 'unit-spawn', frame: sim.frame, unitId: unit.id, unitType, owner: playerIndex, x: unit.x, y: unit.y };
     sim.eventHistory.push(event);
@@ -404,10 +544,10 @@ function spawnServerUnit(match, playerIndex, unitType) {
 function findServerTarget(sim, unit) {
     const enemies = sim.units
         .filter(other => other.owner !== unit.owner && other.hp > 0)
-        .map(other => ({ target: other, distance: serverDist(unit, other) }));
+        .map(other => ({ target: other, distance: getServerSurfaceDistance(unit, other) }));
     sim.players.forEach(player => {
         if (!player.eliminated && player.id !== unit.owner) {
-            enemies.push({ target: player, distance: Math.max(0, serverDist(unit, player.base) - player.base.r) });
+            enemies.push({ target: player, distance: getServerSurfaceDistance(unit, player) });
         }
     });
     enemies.sort((a, b) => a.distance - b.distance);
@@ -629,28 +769,37 @@ function updateServerSim(match) {
         }
         if (unit.frozenUntil && unit.frozenUntil > sim.frame) {
             unit.state = 'frozen';
+            unit.behavior = 'crowd_controlled';
+            unit.currentTarget = null;
+            unit.targetDistance = 0;
             setServerAnim(unit, 'idle', sim.frame);
             return;
         }
         const target = findServerTarget(sim, unit);
         if (!target) {
             unit.state = 'idle';
+            unit.behavior = 'idle';
+            unit.currentTarget = null;
+            unit.targetDistance = 0;
             setServerAnim(unit, 'idle', sim.frame);
             return;
         }
         const targetPoint = getServerTargetPoint(target);
-        const targetRadius = target.base ? target.base.r : 12;
         const range = Number(unit.meta.range || 25);
-        const distance = Math.max(0, serverDist(unit, targetPoint) - targetRadius);
+        const distance = getServerSurfaceDistance(unit, target);
         const dir = Math.sign(targetPoint.x - unit.x) || getServerForwardDir(unit.owner);
         unit.facing = dir > 0 ? 'right' : 'left';
+        unit.currentTarget = snapshotServerTarget(target);
+        unit.targetDistance = distance;
 
         if (distance <= range) {
             unit.state = 'fight';
+            unit.behavior = 'engaging';
             if (tryServerSkill(match, unit, target)) return;
             if (unit.cooldown <= 0) {
                 const atkSpeed = Math.max(0.1, Number(unit.meta.atk_speed || 1));
                 unit.cooldown = Math.max(1, Math.floor(MATCH_FPS / atkSpeed));
+                unit.behavior = 'attacking';
                 setServerAnim(unit, getServerAttackAnim(unit), sim.frame);
                 const berserk = unit.berserkUntil && unit.berserkUntil > sim.frame ? 1.6 : 1;
                 if (range >= 35) addServerProjectileVisual(match, unit, target);
@@ -658,10 +807,14 @@ function updateServerSim(match) {
             }
         } else {
             unit.state = 'march';
+            unit.behavior = 'moving';
             setServerAnim(unit, 'walk', sim.frame);
             unit.x += dir * Number(unit.meta.move_speed || 1);
+            clampServerUnitPosition(unit);
         }
     });
+
+    resolveServerUnitSpacing(sim);
 
     for (let i = sim.units.length - 1; i >= 0; i--) {
         const unit = sim.units[i];
