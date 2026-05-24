@@ -1928,6 +1928,30 @@ body.is-fullscreen canvas {
     min-height: 44px;
     padding: 2px;
   }
+
+  body.is-fullscreen .unit-btn {
+    width: 38px;
+    min-width: 38px;
+    min-height: 48px;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  body.is-fullscreen .unit-btn .u-portrait {
+    width: 25px;
+    height: 25px;
+  }
+
+  body.is-fullscreen .unit-btn .u-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  body.is-fullscreen .unit-btn .u-cost {
+    max-width: 100%;
+    padding: 1px 3px;
+    white-space: nowrap;
+  }
 }
 
 body.is-fullscreen #pause-btn {
