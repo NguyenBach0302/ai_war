@@ -155,6 +155,59 @@ export class MatchService {
         };
     }
 
+    buildServerSpatialIndex(sim: AnyObject): AnyObject {
+        const cellSize = Math.max(24, this.SERVER_UNIT_SIZE * 2);
+        const cells = new Map<string, AnyObject[]>();
+        const byOwner = sim.players.map(() => []);
+        sim.units.forEach((unit: AnyObject) => {
+            if (unit.hp <= 0) return;
+            const cellX = Math.floor(Number(unit.x || 0) / cellSize);
+            const cellY = Math.floor(Number(unit.y || 0) / cellSize);
+            const key = `${cellX}:${cellY}`;
+            const bucket = cells.get(key);
+            if (bucket) bucket.push(unit);
+            else cells.set(key, [unit]);
+            byOwner[unit.owner]?.push(unit);
+        });
+        byOwner.forEach((units: AnyObject[]) => units.sort((a, b) => Number(a.x || 0) - Number(b.x || 0)));
+        sim.spatialIndex = { cellSize, cells, byOwner };
+        return sim.spatialIndex;
+    }
+
+    queryServerSpatialUnits(sim: AnyObject, x: number, y: number, radius: number, predicate: ((unit: AnyObject) => boolean) | null = null): AnyObject[] {
+        const index = sim?.spatialIndex || this.buildServerSpatialIndex(sim);
+        const cellRadius = Math.ceil(radius / index.cellSize);
+        const originX = Math.floor(Number(x || 0) / index.cellSize);
+        const originY = Math.floor(Number(y || 0) / index.cellSize);
+        const seen = new Set<string>();
+        const result: AnyObject[] = [];
+        for (let cx = originX - cellRadius; cx <= originX + cellRadius; cx++) {
+            for (let cy = originY - cellRadius; cy <= originY + cellRadius; cy++) {
+                const bucket = index.cells.get(`${cx}:${cy}`);
+                if (!bucket) continue;
+                bucket.forEach((unit: AnyObject) => {
+                    if (seen.has(unit.id)) return;
+                    seen.add(unit.id);
+                    if (this.serverDist({ x, y }, unit) > radius) return;
+                    if (predicate && !predicate(unit)) return;
+                    result.push(unit);
+                });
+            }
+        }
+        return result;
+    }
+
+    findServerUnitsNearX(units: AnyObject[], x: number): number {
+        let low = 0;
+        let high = units.length;
+        while (low < high) {
+            const mid = (low + high) >> 1;
+            if (Number(units[mid].x || 0) < x) low = mid + 1;
+            else high = mid;
+        }
+        return low;
+    }
+
     findServerSpawnPoint(sim: AnyObject, playerIndex: number): AnyObject {
         const player = sim.players[playerIndex];
         const columns = this.SERVER_FORMATION_LANE_OFFSETS.length;
@@ -174,26 +227,40 @@ export class MatchService {
         const minDistance = this.SERVER_UNIT_SIZE;
         for (let pass = 0; pass < 6; pass++) {
             let changed = false;
-            for (let i = 0; i < sim.units.length - 1; i++) {
-                const a = sim.units[i];
-                for (let j = i + 1; j < sim.units.length; j++) {
-                    const b = sim.units[j];
-                    const dx = Number(b.x || 0) - Number(a.x || 0);
-                    const dy = Number(b.y || 0) - Number(a.y || 0);
-                    const distance = Math.hypot(dx, dy);
-                    if (distance >= minDistance) continue;
-                    const overlap = (minDistance - distance) / 2;
-                    const normalX = distance < 0.001 ? (a.owner <= b.owner ? 1 : -1) : dx / distance;
-                    const normalY = distance < 0.001 ? 0 : dy / distance;
-                    a.x -= normalX * overlap;
-                    a.y -= normalY * overlap;
-                    b.x += normalX * overlap;
-                    b.y += normalY * overlap;
-                    this.clampServerUnitPosition(a);
-                    this.clampServerUnitPosition(b);
-                    changed = true;
-                }
-            }
+            const index = this.buildServerSpatialIndex(sim);
+            const handledPairs = new Set<string>();
+            index.cells.forEach((bucket: AnyObject[]) => {
+                bucket.forEach((a: AnyObject) => {
+                    const cellX = Math.floor(Number(a.x || 0) / index.cellSize);
+                    const cellY = Math.floor(Number(a.y || 0) / index.cellSize);
+                    for (let dxCell = -1; dxCell <= 1; dxCell++) {
+                        for (let dyCell = -1; dyCell <= 1; dyCell++) {
+                            const neighbor = index.cells.get(`${cellX + dxCell}:${cellY + dyCell}`);
+                            if (!neighbor) continue;
+                            neighbor.forEach((b: AnyObject) => {
+                                if (a === b) return;
+                                const pairKey = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+                                if (handledPairs.has(pairKey)) return;
+                                handledPairs.add(pairKey);
+                                const dx = Number(b.x || 0) - Number(a.x || 0);
+                                const dy = Number(b.y || 0) - Number(a.y || 0);
+                                const distance = Math.hypot(dx, dy);
+                                if (distance >= minDistance) return;
+                                const overlap = (minDistance - distance) / 2;
+                                const normalX = distance < 0.001 ? (a.owner <= b.owner ? 1 : -1) : dx / distance;
+                                const normalY = distance < 0.001 ? 0 : dy / distance;
+                                a.x -= normalX * overlap;
+                                a.y -= normalY * overlap;
+                                b.x += normalX * overlap;
+                                b.y += normalY * overlap;
+                                this.clampServerUnitPosition(a);
+                                this.clampServerUnitPosition(b);
+                                changed = true;
+                            });
+                        }
+                    }
+                });
+            });
             if (!changed) break;
         }
     }
@@ -574,16 +641,37 @@ export class MatchService {
     }
 
     findServerTarget(sim: AnyObject, unit: AnyObject): AnyObject {
-        const enemies = sim.units
-            .filter((other: AnyObject) => other.owner !== unit.owner && other.hp > 0)
-            .map((other: AnyObject) => ({ target: other, distance: this.getServerSurfaceDistance(unit, other) }));
+        const index = sim?.spatialIndex || this.buildServerSpatialIndex(sim);
+        const enemies = index.byOwner[(unit.owner + 1) % index.byOwner.length] || [];
+        let bestTarget: AnyObject = null;
+        let bestDistance = Infinity;
+        const pivot = this.findServerUnitsNearX(enemies, Number(unit.x || 0));
+
+        for (let left = pivot - 1, right = pivot; left >= 0 || right < enemies.length;) {
+            const leftDx = left >= 0 ? Math.abs(Number(enemies[left].x || 0) - Number(unit.x || 0)) : Infinity;
+            const rightDx = right < enemies.length ? Math.abs(Number(enemies[right].x || 0) - Number(unit.x || 0)) : Infinity;
+            const useLeft = leftDx <= rightDx;
+            const candidate = useLeft ? enemies[left--] : enemies[right++];
+            const minPossible = Math.max(0, (useLeft ? leftDx : rightDx) - this.SERVER_UNIT_HALF_SIZE - this.SERVER_UNIT_HALF_SIZE);
+            if (minPossible > bestDistance) break;
+            const distance = this.getServerSurfaceDistance(unit, candidate);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestTarget = candidate;
+            }
+        }
+
         sim.players.forEach((player: AnyObject) => {
             if (!player.eliminated && player.id !== unit.owner) {
-                enemies.push({ target: player, distance: this.getServerSurfaceDistance(unit, player) });
+                const distance = this.getServerSurfaceDistance(unit, player);
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    bestTarget = player;
+                }
             }
         });
-        enemies.sort((a, b) => a.distance - b.distance);
-        return enemies[0]?.target || null;
+
+        return bestTarget;
     }
 
     setServerAnim(unit: AnyObject, action: string, frame: number): void {
@@ -668,11 +756,10 @@ export class MatchService {
 
     applyServerAreaDamage(match: AnyObject, unit: AnyObject, center: AnyObject, radius: number, amount: number, damageType: string, label: string): void {
         const sim = match.sim;
-        sim.units.forEach((target: AnyObject) => {
-            if (target.owner === unit.owner || target.hp <= 0) return;
-            if (this.serverDist(target, center) > radius) return;
-            this.applyServerDamage(match, unit, target, amount, damageType, label);
-        });
+        this.queryServerSpatialUnits(sim, center.x, center.y, radius, (target: AnyObject) => target.owner !== unit.owner && target.hp > 0)
+            .forEach((target: AnyObject) => {
+                this.applyServerDamage(match, unit, target, amount, damageType, label);
+            });
     }
 
     tryServerSkill(match: AnyObject, unit: AnyObject, target: AnyObject): boolean {
@@ -684,8 +771,7 @@ export class MatchService {
             unit.mana -= 60;
             unit.skillCooldown = 120;
             this.setServerAnim(unit, 'charge_2', sim.frame);
-            const targets = sim.units
-                .filter((other: AnyObject) => other.owner !== unit.owner && other.hp > 0)
+            const targets = this.queryServerSpatialUnits(sim, unit.x, unit.y, 320, (other: AnyObject) => other.owner !== unit.owner && other.hp > 0)
                 .map((other: AnyObject) => ({ unit: other, distance: this.serverDist(unit, other) }))
                 .sort((a, b) => a.distance - b.distance)
                 .slice(0, 3)
@@ -737,8 +823,7 @@ export class MatchService {
         }
 
         if (lower.includes('assassin') && unit.mana >= 80) {
-            const dashTarget = sim.units
-                .filter((other: AnyObject) => other.owner !== unit.owner && other.hp > 0 && this.serverDist(unit, other) <= 300)
+            const dashTarget = this.queryServerSpatialUnits(sim, unit.x, unit.y, 300, (other: AnyObject) => other.owner !== unit.owner && other.hp > 0)
                 .sort((a, b) => this.serverDist(unit, b) - this.serverDist(unit, a))[0];
             if (!dashTarget) return false;
             unit.mana -= 80;
@@ -754,8 +839,8 @@ export class MatchService {
         }
 
         if (lower.includes('healer') && unit.mana >= 80) {
-            const ally = sim.units
-                .filter((other: AnyObject) => other.owner === unit.owner && other.id !== unit.id && other.hp < other.maxHp)
+            const ally = (sim.spatialIndex?.byOwner?.[unit.owner] || sim.units)
+                .filter((other: AnyObject) => other.id !== unit.id && other.hp < other.maxHp)
                 .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
             if (!ally) return false;
             unit.mana -= 80;
@@ -793,6 +878,8 @@ export class MatchService {
             const command = sim.commands.shift();
             if (command.type === 'buy') this.spawnServerUnit(match, command.playerIndex, command.unitType);
         }
+
+        this.buildServerSpatialIndex(sim);
 
         sim.units.forEach((unit: AnyObject) => {
             if (unit.cooldown > 0) unit.cooldown -= 1;
@@ -850,6 +937,7 @@ export class MatchService {
             }
         });
 
+        this.buildServerSpatialIndex(sim);
         this.resolveServerUnitSpacing(sim);
 
         for (let i = sim.units.length - 1; i >= 0; i--) {
