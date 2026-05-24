@@ -7,6 +7,7 @@ class MatchService {
         this.MATCH_FPS = 60;
         this.MATCH_ACTION_DELAY_FRAMES = 0;
         this.MATCH_BROADCAST_EVERY_FRAMES = 4;
+        this.FULL_SNAPSHOT_EVERY_FRAMES = 60;
         this.SERVER_GOLD_RATE = 0.15;
         this.SERVER_MAP_W = 2400;
         this.SERVER_LANE_Y = 382;
@@ -21,6 +22,47 @@ class MatchService {
         this.MAX_MATCH_EVENTS = 256;
         this.MAX_SIM_EVENTS = 128;
         this.MAX_VISUAL_EVENTS = 96;
+        this.UNIT_TYPE_CODES = {
+            Guard: 1,
+            Assassin: 2,
+            Mage: 3,
+            Healer: 4,
+            Bowman: 5,
+            Gunman: 6,
+            Gunner: 7,
+            Iceman: 8,
+            ChilyGirl: 9,
+            Sniper: 10
+        };
+        this.UNIT_STATE_CODES = {
+            idle: 0,
+            march: 1,
+            fight: 2,
+            frozen: 3
+        };
+        this.FACING_CODES = {
+            left: 0,
+            right: 1
+        };
+        this.BUFF_TYPE_CODES = {
+            dodge: 1,
+            lifesteal: 2,
+            crit_chance: 3,
+            phys_pen: 4
+        };
+        this.ANIM_ACTION_CODES = {
+            idle: 0,
+            walk: 1,
+            attack: 2,
+            attack_1: 3,
+            attack_2: 4,
+            attack_3: 5,
+            shot: 6,
+            shot_1: 7,
+            charge_2: 8,
+            protect: 9,
+            defend: 10
+        };
         this.waitingMatches = [];
         this.matches = new Map();
         this.cleanupTimer = setInterval(() => this.cleanupExpiredMatches(), 1000 * 60 * 10);
@@ -306,6 +348,56 @@ class MatchService {
         return sim.rngState / 0x100000000;
     }
 
+    roundForWire(value, decimals = 1) {
+        const factor = 10 ** decimals;
+        return Math.round(Number(value || 0) * factor) / factor;
+    }
+
+    encodeWireBuff(buff) {
+        return {
+            t: this.BUFF_TYPE_CODES[buff.type] ?? buff.type,
+            v: this.roundForWire(buff.value, 2),
+            d: Math.max(0, Math.floor(Number(buff.duration || 0)))
+        };
+    }
+
+    encodeWirePlayer(player) {
+        return {
+            i: player.id,
+            g: this.roundForWire(player.gold, 2),
+            h: this.roundForWire(player.hp, 2),
+            H: this.roundForWire(player.maxHp, 2),
+            e: player.eliminated ? 1 : 0
+        };
+    }
+
+    encodeWireUnit(unit, sim) {
+        const buffs = [
+            ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
+            ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
+            ...(unit.critBoostUntil && unit.critBoostUntil > sim.frame ? [{ type: 'crit_chance', value: 0.5, duration: unit.critBoostUntil - sim.frame }] : []),
+            ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : [])
+        ].map(buff => this.encodeWireBuff(buff));
+
+        return {
+            i: unit.id,
+            o: unit.owner,
+            t: this.UNIT_TYPE_CODES[unit.type] ?? unit.type,
+            h: this.roundForWire(unit.hp, 2),
+            H: this.roundForWire(unit.maxHp, 2),
+            m: this.roundForWire(unit.mana, 2),
+            M: this.roundForWire(unit.maxMana, 2),
+            x: this.roundForWire(unit.x, 1),
+            y: this.roundForWire(unit.y, 1),
+            s: this.UNIT_STATE_CODES[unit.state] ?? unit.state,
+            r: this.getServerUnitHalfSize(),
+            b: buffs,
+            f: this.FACING_CODES[unit.facing] ?? unit.facing,
+            a: this.ANIM_ACTION_CODES[unit.animAction] ?? unit.animAction,
+            z: Math.max(0, Math.floor(Number(unit.animStartedAt || 0)))
+        };
+    }
+
     serializeServerSim(match) {
         const sim = match.sim;
         return {
@@ -313,53 +405,68 @@ class MatchService {
             frame: sim.frame,
             serverNow: Date.now(),
             state: {
-                frameCount: sim.frame,
-                players: sim.players.map(player => ({
-                    id: player.id,
-                    name: player.name,
-                    gold: player.gold,
-                    hp: player.hp,
-                    maxHp: player.maxHp,
-                    eliminated: player.eliminated
-                })),
-                units: sim.units.map(unit => ({
-                    id: unit.id,
-                    owner: unit.owner,
-                    type: unit.type,
-                    hp: unit.hp,
-                    maxHp: unit.maxHp,
-                    mana: unit.mana,
-                    maxMana: unit.maxMana,
-                    x: unit.x,
-                    y: unit.y,
-                    state: unit.state,
-                    radius: this.getServerUnitHalfSize(),
-                    buffs: [
-                        ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
-                        ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
-                        ...(unit.critBoostUntil && unit.critBoostUntil > sim.frame ? [{ type: 'crit_chance', value: 0.5, duration: unit.critBoostUntil - sim.frame }] : []),
-                        ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : []),
-                    ],
-                    isPet: false,
-                    untargetableTimer: 0,
-                    facing: unit.facing,
-                    blockTimer: 0,
-                    animAction: unit.animAction,
-                    animStartedAt: unit.animStartedAt
-                })),
-                projectiles: [],
-                vfx: [],
-                floatingTexts: []
+                m: 'f',
+                fc: sim.frame,
+                p: sim.players.map(player => this.encodeWirePlayer(player)),
+                u: sim.units.map(unit => this.encodeWireUnit(unit, sim))
             },
             events: this.getRecentServerEvents(sim)
         };
     }
 
+    buildDeltaStatePayload(match, fullPayload) {
+        const currentUnits = Array.isArray(fullPayload?.state?.u) ? fullPayload.state.u : [];
+        const previous = match.broadcastUnitCache || new Map();
+        const current = new Map();
+        const changed = [];
+
+        currentUnits.forEach(unit => {
+            const signature = JSON.stringify(unit);
+            current.set(unit.i, signature);
+            if (previous.get(unit.i) !== signature) changed.push(unit);
+        });
+
+        const removed = [];
+        previous.forEach((_, unitId) => {
+            if (!current.has(unitId)) removed.push(unitId);
+        });
+
+        match.broadcastUnitCache = current;
+
+        const shouldSendFull = !match.lastFullStateFrame
+            || fullPayload.frame - match.lastFullStateFrame >= this.FULL_SNAPSHOT_EVERY_FRAMES
+            || changed.length >= Math.max(8, Math.floor(currentUnits.length * 0.6));
+
+        if (shouldSendFull) {
+            match.lastFullStateFrame = fullPayload.frame;
+            return fullPayload;
+        }
+
+        return {
+            seq: fullPayload.seq,
+            frame: fullPayload.frame,
+            serverNow: fullPayload.serverNow,
+            state: {
+                m: 'd',
+                fc: fullPayload.state.fc,
+                p: fullPayload.state.p,
+                u: changed,
+                r: removed
+            },
+            events: fullPayload.events
+        };
+    }
+
+    createBroadcastPayload(match) {
+        const fullPayload = this.serializeServerSim(match);
+        match.stateSeq = fullPayload.seq;
+        match.stateSnapshot = fullPayload;
+        return this.buildDeltaStatePayload(match, fullPayload);
+    }
+
     broadcastServerFrame(match) {
         if (!match.sim) return;
-        const payload = this.serializeServerSim(match);
-        match.stateSeq = payload.seq;
-        match.stateSnapshot = payload;
+        const payload = this.createBroadcastPayload(match);
         this.sendMatchEvent(match, 'match-state', payload);
     }
 
@@ -405,9 +512,7 @@ class MatchService {
             const spawned = this.spawnServerUnit(match, playerIndex, payload.unitType);
             if (spawned) {
                 match.sim.seq += 1;
-                statePayload = this.serializeServerSim(match);
-                match.stateSeq = statePayload.seq;
-                match.stateSnapshot = statePayload;
+                statePayload = this.createBroadcastPayload(match);
                 this.sendMatchEvent(match, 'match-state', statePayload);
             }
         }

@@ -572,6 +572,47 @@ const Game = (function() {
     const MAX_TEXTS = 50;
     const MAX_UNITS_PER_PLAYER = 50;
     const ONLINE_RENDER_DELAY_FRAMES = 0;
+    const WIRE_TYPE_TO_NAME = {
+        1: 'Guard',
+        2: 'Assassin',
+        3: 'Mage',
+        4: 'Healer',
+        5: 'Bowman',
+        6: 'Gunman',
+        7: 'Gunner',
+        8: 'Iceman',
+        9: 'ChilyGirl',
+        10: 'Sniper'
+    };
+    const WIRE_STATE_TO_NAME = {
+        0: 'idle',
+        1: 'march',
+        2: 'fight',
+        3: 'frozen'
+    };
+    const WIRE_FACING_TO_NAME = {
+        0: 'left',
+        1: 'right'
+    };
+    const WIRE_BUFF_TO_NAME = {
+        1: 'dodge',
+        2: 'lifesteal',
+        3: 'crit_chance',
+        4: 'phys_pen'
+    };
+    const WIRE_ANIM_TO_NAME = {
+        0: 'idle',
+        1: 'walk',
+        2: 'attack',
+        3: 'attack_1',
+        4: 'attack_2',
+        5: 'attack_3',
+        6: 'shot',
+        7: 'shot_1',
+        8: 'charge_2',
+        9: 'protect',
+        10: 'defend'
+    };
     const MELEE_CROWD_LIMIT = 2;
     const MELEE_RETARGET_DISTANCE = 260;
     const MELEE_BASE_INTERCEPT_DISTANCE = 220;
@@ -1558,30 +1599,100 @@ const Game = (function() {
         const state = payload?.state;
         if (!state || seq <= onlineStateSeq) return;
         onlineStateSeq = seq;
-        frameCount = Number(state.frameCount || payload.frame || frameCount);
+        frameCount = Number(state.frameCount || state.fc || payload.frame || frameCount);
         const previousUnits = new Map(units.map(unit => [unit.id, {
             animAction: unit.animAction,
             animStartedAt: unit.animStartedAt
         }]));
-        if (Array.isArray(state.players)) {
-            state.players.forEach(sp => {
+
+        const decodeBuff = buff => {
+            if (!buff || typeof buff !== 'object') return null;
+            if (buff.type) return buff;
+            return {
+                type: WIRE_BUFF_TO_NAME[buff.t] || buff.t,
+                value: Number(buff.v || 0),
+                duration: Number(buff.d || 0)
+            };
+        };
+
+        const decodePlayer = entry => entry?.id !== undefined ? entry : ({
+            id: Number(entry?.i || 0),
+            gold: Number(entry?.g || 0),
+            hp: Number(entry?.h || 0),
+            maxHp: Number(entry?.H || 0),
+            eliminated: !!entry?.e
+        });
+
+        const decodeUnit = entry => {
+            if (entry?.id !== undefined) {
+                return {
+                    ...entry,
+                    laneY: Number(entry.y || 0),
+                    meta: CLASSES[entry.type],
+                    buffs: Array.isArray(entry.buffs) ? entry.buffs : [],
+                    radius: Number(entry.radius || 12),
+                    isPet: !!entry.isPet,
+                    untargetableTimer: Number(entry.untargetableTimer || 0),
+                    blockTimer: Number(entry.blockTimer || 0)
+                };
+            }
+
+            const typeName = WIRE_TYPE_TO_NAME[entry?.t] || entry?.t;
+            return {
+                id: entry.i,
+                owner: Number(entry.o || 0),
+                type: typeName,
+                hp: Number(entry.h || 0),
+                maxHp: Number(entry.H || 0),
+                mana: Number(entry.m || 0),
+                maxMana: Number(entry.M || 0),
+                x: Number(entry.x || 0),
+                y: Number(entry.y || 0),
+                laneY: Number(entry.y || 0),
+                state: WIRE_STATE_TO_NAME[entry.s] || entry.s || 'idle',
+                radius: Number(entry.r || 12),
+                buffs: Array.isArray(entry.b) ? entry.b.map(decodeBuff).filter(Boolean) : [],
+                isPet: false,
+                untargetableTimer: 0,
+                facing: WIRE_FACING_TO_NAME[entry.f] || entry.f || 'right',
+                blockTimer: 0,
+                animAction: WIRE_ANIM_TO_NAME[entry.a] || entry.a || 'idle',
+                animStartedAt: Number(entry.z || 0),
+                meta: CLASSES[typeName]
+            };
+        };
+
+        const playerEntries = Array.isArray(state.players) ? state.players : (Array.isArray(state.p) ? state.p : []);
+        if (playerEntries.length) {
+            playerEntries.forEach(rawPlayer => {
+                const sp = decodePlayer(rawPlayer);
                 const p = players[sp.id];
                 if (!p) return;
                 p.gold = Number(sp.gold || 0);
                 p.hp = Number(sp.hp || 0);
                 p.maxHp = Number(sp.maxHp || p.maxHp);
                 p.eliminated = !!sp.eliminated;
-                const goldEl = document.getElementById(`gold-${p.id}`);
-                if (goldEl) goldEl.innerText = `$ ${Math.floor(p.gold)}`;
-                const hpEl = document.getElementById(`hp-${p.id}`);
-                if (hpEl) hpEl.style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
+                updatePlayerHud(p.id, p);
             });
         }
-        units = Array.isArray(state.units) ? state.units.map(u => ({
-            ...u,
-            meta: CLASSES[u.type],
-            buffs: Array.isArray(u.buffs) ? u.buffs : []
-        })).filter(u => u.meta?.name) : [];
+
+        const mode = state.m === 'd' ? 'delta' : 'full';
+        const unitEntries = Array.isArray(state.units) ? state.units : (Array.isArray(state.u) ? state.u : []);
+        if (mode === 'delta') {
+            const unitMap = new Map(units.map(unit => [unit.id, unit]));
+            const removedIds = Array.isArray(state.r) ? state.r : [];
+            removedIds.forEach(unitId => unitMap.delete(unitId));
+            unitEntries.forEach(rawUnit => {
+                const unit = decodeUnit(rawUnit);
+                if (unit.meta?.name) unitMap.set(unit.id, unit);
+            });
+            units = Array.from(unitMap.values());
+        } else {
+            units = unitEntries
+                .map(decodeUnit)
+                .filter(unit => unit.meta?.name);
+        }
+
         synthesizeAuthoritativeProjectiles(previousUnits);
         if (Array.isArray(payload.events)) {
             payload.events.forEach(event => {
