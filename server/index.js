@@ -236,6 +236,12 @@ app.post('/api/match/state', authenticate, (req, res) => {
     res.json(result);
 });
 
+app.post('/api/match/ping', authenticate, (req, res) => {
+    const result = matchService.pingMatch(req.body.matchId, req.user.id, req.body.clientSentAt);
+    if (!result.ok) return res.status(result.status || 400).json({ message: result.message || 'Unable to ping match' });
+    res.json(result);
+});
+
 app.post('/api/match/leave', authenticate, (req, res) => {
     res.json(matchService.leaveMatch(req.body.matchId, req.user.id));
 });

@@ -201,10 +201,61 @@ const Online = (function() {
     let currentMatchId = null;
     let activeStartedMatchId = null;
     let commandSeq = 1;
+    let pingTimer = null;
+    let pingMs = null;
 
     function setStatus(message) {
         const el = document.getElementById('online-status');
         if (el) el.textContent = message || '';
+    }
+
+    function renderPing() {
+        const wrap = document.getElementById('connection-stats');
+        const value = document.getElementById('ping-value');
+        if (!wrap || !value) return;
+        if (!currentMatchId) {
+            wrap.style.display = 'none';
+            value.textContent = '--';
+            return;
+        }
+        wrap.style.display = 'inline-flex';
+        value.textContent = Number.isFinite(pingMs) ? String(Math.round(pingMs)) : '--';
+    }
+
+    async function measurePing() {
+        if (!currentMatchId || !Auth.getToken()) return;
+        const startedAt = performance.now();
+        try {
+            const res = await fetch('/api/match/ping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({ matchId: currentMatchId, clientSentAt: Date.now() })
+            });
+            if (!res.ok) return;
+            await res.json().catch(() => null);
+            const sample = performance.now() - startedAt;
+            pingMs = Number.isFinite(pingMs) ? (pingMs * 0.65) + (sample * 0.35) : sample;
+            renderPing();
+        } catch (err) {
+            // Keep the last sample on transient network failures.
+        }
+    }
+
+    function startPingLoop() {
+        stopPingLoop();
+        renderPing();
+        measurePing();
+        pingTimer = setInterval(measurePing, 4000);
+    }
+
+    function stopPingLoop() {
+        if (pingTimer) clearInterval(pingTimer);
+        pingTimer = null;
+        pingMs = null;
+        renderPing();
     }
 
     function closeStream() {
@@ -269,6 +320,8 @@ const Online = (function() {
 
     function openStream(matchId) {
         closeStream();
+        currentMatchId = matchId;
+        startPingLoop();
         const token = encodeURIComponent(Auth.getToken());
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         socket = new WebSocket(`${protocol}//${location.host}/api/match/ws?matchId=${encodeURIComponent(matchId)}&token=${token}`);
@@ -351,15 +404,17 @@ const Online = (function() {
         }
         currentMatchId = null;
         activeStartedMatchId = null;
+        stopPingLoop();
         closeStream();
     }
 
     function clearLocalMatch() {
         currentMatchId = null;
         activeStartedMatchId = null;
+        stopPingLoop();
     }
 
-    return { findMatch, sendBuy, leave, clearLocalMatch };
+    return { findMatch, sendBuy, leave, clearLocalMatch, renderPing };
 })();
 
 const Admin = (function() {
@@ -1520,7 +1575,7 @@ const Game = (function() {
         }
         units = Array.isArray(state.units) ? state.units.map(u => ({
             ...u,
-            meta: { ...CLASSES[u.type] },
+            meta: CLASSES[u.type],
             buffs: Array.isArray(u.buffs) ? u.buffs : []
         })).filter(u => u.meta?.name) : [];
         synthesizeAuthoritativeProjectiles(previousUnits);
@@ -1544,7 +1599,6 @@ const Game = (function() {
                 vText.style.color = won ? 'var(--success)' : 'var(--danger)';
             }
         }
-        draw();
     }
 
     function spawnClientProjectile(event) {
@@ -2808,6 +2862,8 @@ const Game = (function() {
         document.getElementById('setup-overlay').style.display = 'none';
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
+        if (!onlineMode) Online.clearLocalMatch();
+        else Online.renderPing();
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
         onlineAuthoritative = false;
         onlineStateSeq = 0;

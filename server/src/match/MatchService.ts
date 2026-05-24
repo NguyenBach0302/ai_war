@@ -7,7 +7,7 @@ export class MatchService {
     private readonly MATCH_TTL_MS = 1000 * 60 * 60;
     private readonly MATCH_FPS = 60;
     private readonly MATCH_ACTION_DELAY_FRAMES = 0;
-    private readonly MATCH_BROADCAST_EVERY_FRAMES = 2;
+    private readonly MATCH_BROADCAST_EVERY_FRAMES = 4;
     private readonly SERVER_GOLD_RATE = 0.15;
     private readonly SERVER_MAP_W = 2400;
     private readonly SERVER_LANE_Y = 382;
@@ -19,6 +19,9 @@ export class MatchService {
     private readonly SERVER_MAX_UNITS_PER_PLAYER = 50;
     private readonly SERVER_MANA_REGEN_INTERVAL_FRAMES = 60;
     private readonly SERVER_MANA_REGEN_AMOUNT = 4;
+    private readonly MAX_MATCH_EVENTS = 256;
+    private readonly MAX_SIM_EVENTS = 128;
+    private readonly MAX_VISUAL_EVENTS = 96;
     private waitingMatches: string[] = [];
     private matches = new Map<string, AnyObject>();
     private cleanupTimer: NodeJS.Timeout;
@@ -187,8 +190,13 @@ export class MatchService {
     pushServerEvent(match: AnyObject, event: AnyObject): AnyObject {
         const sim = match.sim;
         const payload = { frame: sim?.frame || 0, ...event };
-        if (sim) sim.eventHistory.push(payload);
-        match.eventHistory = [...(match.eventHistory || []), payload];
+        if (sim) {
+            sim.eventHistory.push(payload);
+            if (sim.eventHistory.length > this.MAX_SIM_EVENTS) {
+                sim.eventHistory.splice(0, sim.eventHistory.length - this.MAX_SIM_EVENTS);
+            }
+        }
+        match.eventHistory = [...(match.eventHistory || []), payload].slice(-this.MAX_MATCH_EVENTS);
         return payload;
     }
 
@@ -477,7 +485,10 @@ export class MatchService {
         sim.units.push(unit);
         const event = { type: 'unit-spawn', frame: sim.frame, unitId: unit.id, unitType, owner: playerIndex, x: unit.x, y: unit.y };
         sim.eventHistory.push(event);
-        match.eventHistory = [...(match.eventHistory || []), event];
+        if (sim.eventHistory.length > this.MAX_SIM_EVENTS) {
+            sim.eventHistory.splice(0, sim.eventHistory.length - this.MAX_SIM_EVENTS);
+        }
+        match.eventHistory = [...(match.eventHistory || []), event].slice(-this.MAX_MATCH_EVENTS);
         return true;
     }
 
@@ -549,6 +560,9 @@ export class MatchService {
             explosionRadius: skill === 'grenade' ? 28 : 0
         };
         sim.pendingVisualEvents.push(event);
+        if (sim.pendingVisualEvents.length > this.MAX_VISUAL_EVENTS) {
+            sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length - this.MAX_VISUAL_EVENTS);
+        }
         this.sendMatchEvent(match, 'match-visual', event);
     }
 
@@ -565,6 +579,9 @@ export class MatchService {
             color
         };
         sim.pendingVisualEvents.push(event);
+        if (sim.pendingVisualEvents.length > this.MAX_VISUAL_EVENTS) {
+            sim.pendingVisualEvents.splice(0, sim.pendingVisualEvents.length - this.MAX_VISUAL_EVENTS);
+        }
         this.sendMatchEvent(match, 'match-visual', event);
     }
 
@@ -761,7 +778,10 @@ export class MatchService {
             if (killer) killer.gold += Number(unit.meta.cost || 0) * 0.3;
             const event = { type: 'unit-death', frame: sim.frame, unitId: unit.id, unitType: unit.type, owner: unit.owner, killerOwner: unit.lastAttacker };
             sim.eventHistory.push(event);
-            match.eventHistory = [...(match.eventHistory || []), event];
+            if (sim.eventHistory.length > this.MAX_SIM_EVENTS) {
+                sim.eventHistory.splice(0, sim.eventHistory.length - this.MAX_SIM_EVENTS);
+            }
+            match.eventHistory = [...(match.eventHistory || []), event].slice(-this.MAX_MATCH_EVENTS);
             sim.units.splice(i, 1);
         }
 
@@ -770,7 +790,10 @@ export class MatchService {
                 player.eliminated = true;
                 const event = { type: 'player-eliminated', frame: sim.frame, playerIndex: player.id, playerName: player.name };
                 sim.eventHistory.push(event);
-                match.eventHistory = [...(match.eventHistory || []), event];
+                if (sim.eventHistory.length > this.MAX_SIM_EVENTS) {
+                    sim.eventHistory.splice(0, sim.eventHistory.length - this.MAX_SIM_EVENTS);
+                }
+                match.eventHistory = [...(match.eventHistory || []), event].slice(-this.MAX_MATCH_EVENTS);
             }
         });
 
@@ -969,12 +992,25 @@ export class MatchService {
                 serverSeq: seq,
                 serverFrame: frame,
                 serverAt: payload.serverNow
-            }))];
+            }))].slice(-this.MAX_MATCH_EVENTS);
         }
         match.players.forEach((player: AnyObject, idx: number) => {
             if (idx !== 0) this.sendMatchEventToPlayer(match, player.id, 'match-state', payload);
         });
         return { ok: true };
+    }
+
+    pingMatch(matchId: string, userId: number, clientSentAt: number): AnyObject {
+        const match = this.matches.get(String(matchId || ''));
+        if (!match || !match.players.some((player: AnyObject) => player.id === userId)) {
+            return { ok: false, status: 404, message: 'Match not found' };
+        }
+        return {
+            ok: true,
+            matchId: match.id,
+            serverNow: Date.now(),
+            clientSentAt: Number(clientSentAt || 0)
+        };
     }
 
     leaveMatch(matchId: string, userId: number): AnyObject {
