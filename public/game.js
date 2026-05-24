@@ -563,6 +563,9 @@ const Game = (function() {
     let processedVisualEventIds = new Set();
     let pendingOnlineEvents = [];
     let onlineServerClockOffsetMs = 0;
+    let mapBackgroundCanvas = null;
+    let playerHudCache = [];
+    let lastUnitButtonsUpdateFrame = -1;
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
@@ -1696,6 +1699,23 @@ const Game = (function() {
         await fetch('/api/session/clear', { method: 'POST', headers: { 'Authorization': `Bearer ${Auth.getToken()}` } });
     }
 
+    function updatePlayerHud(playerIndex, player) {
+        const cached = playerHudCache[playerIndex] || {};
+        const gold = Math.floor(player.gold);
+        const hpWidth = `${Math.max(0, (player.hp / player.maxHp) * 100)}%`;
+        if (cached.gold !== gold) {
+            const goldEl = document.getElementById(`gold-${playerIndex}`);
+            if (goldEl) goldEl.innerText = `$ ${gold}`;
+            cached.gold = gold;
+        }
+        if (cached.hpWidth !== hpWidth) {
+            const hpEl = document.getElementById(`hp-${playerIndex}`);
+            if (hpEl) hpEl.style.width = hpWidth;
+            cached.hpWidth = hpWidth;
+        }
+        playerHudCache[playerIndex] = cached;
+    }
+
     function update() {
         if (paused) return;
         frameCount++;
@@ -1711,10 +1731,7 @@ const Game = (function() {
         players.forEach((p, i) => {
             if (!p.eliminated) {
                 p.gold += GOLD_RATE;
-                const goldEl = document.getElementById(`gold-${i}`);
-                if (goldEl) goldEl.innerText = `$ ${Math.floor(p.gold)}`;
-                const hpEl = document.getElementById(`hp-${i}`);
-                if (hpEl) hpEl.style.width = `${Math.max(0, (p.hp/p.maxHp)*100)}%`;
+                updatePlayerHud(i, p);
                 
                 if (p.hp <= 0) {
                     p.eliminated = true;
@@ -1723,7 +1740,10 @@ const Game = (function() {
                 }
             }
         });
-        updateUnitButtons();
+        if (frameCount - lastUnitButtonsUpdateFrame >= 12) {
+            updateUnitButtons();
+            lastUnitButtonsUpdateFrame = frameCount;
+        }
 
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const pr = projectiles[i];
@@ -2012,72 +2032,83 @@ const Game = (function() {
     }
 
     function drawMapBackground() {
-        ctx.imageSmoothingEnabled = false;
-        const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-        sky.addColorStop(0, '#18253a');
-        sky.addColorStop(0.58, '#38546a');
-        sky.addColorStop(1, '#76906e');
-        ctx.fillStyle = sky;
-        ctx.fillRect(0, 0, MAP_W, MAP_H);
+        if (!mapBackgroundCanvas || mapBackgroundCanvas.width !== MAP_W || mapBackgroundCanvas.height !== MAP_H) {
+            mapBackgroundCanvas = document.createElement('canvas');
+            mapBackgroundCanvas.width = MAP_W;
+            mapBackgroundCanvas.height = MAP_H;
+            const liveCtx = ctx;
+            ctx = mapBackgroundCanvas.getContext('2d');
 
-        ctx.save();
-        const sunX = MAP_W * 0.53;
-        px(sunX - 34, 56, 68, 68, 'rgba(255, 218, 132, 0.22)');
-        px(sunX - 22, 68, 44, 44, 'rgba(255, 238, 184, 0.35)');
-        for (let i = 0; i < 16; i++) {
-            const x = (i * 173) % MAP_W;
-            const y = 58 + (i * 47) % 120;
-            px(x, y, 52, 10, 'rgba(226, 232, 240, 0.16)');
-            px(x + 18, y - 8, 74, 12, 'rgba(226, 232, 240, 0.1)');
-        }
-        for (let i = 0; i < 5; i++) {
-            const ridgeY = 248 + i * 20;
-            ctx.fillStyle = i % 2 ? '#263f3c' : '#315247';
-            ctx.beginPath();
-            ctx.moveTo(0, GROUND_Y);
-            for (let x = -80; x <= MAP_W + 80; x += 160) {
-                ctx.lineTo(x, ridgeY + Math.sin((x + i * 90) / 120) * 28);
-            }
-            ctx.lineTo(MAP_W, GROUND_Y);
-            ctx.closePath();
-            ctx.globalAlpha = 0.55 - i * 0.06;
-            ctx.fill();
-        }
-        ctx.globalAlpha = 1;
+            ctx.imageSmoothingEnabled = false;
+            const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+            sky.addColorStop(0, '#18253a');
+            sky.addColorStop(0.58, '#38546a');
+            sky.addColorStop(1, '#76906e');
+            ctx.fillStyle = sky;
+            ctx.fillRect(0, 0, MAP_W, MAP_H);
 
-        px(0, GROUND_Y - 42, MAP_W, 42, '#4f6f3d');
-        px(0, GROUND_Y - 10, MAP_W, 10, '#7a5a34');
-        px(0, GROUND_Y, MAP_W, MAP_H - GROUND_Y, '#5f3f25');
-        px(0, GROUND_Y + 22, MAP_W, 18, '#4f3420');
-        px(0, LANE_Y - 30, MAP_W, 8, '#2f5131');
-        px(0, LANE_Y - 22, MAP_W, 8, '#6f6b58');
-        px(0, LANE_Y - 14, MAP_W, 72, '#a7743d');
-        px(0, LANE_Y + 58, MAP_W, 8, '#6f6b58');
-        px(0, LANE_Y + 66, MAP_W, 8, '#2f5131');
-        px(0, LANE_Y + 10, MAP_W, 11, 'rgba(65, 40, 22, 0.34)');
-        px(0, LANE_Y + 34, MAP_W, 8, 'rgba(65, 40, 22, 0.24)');
-        for (let x = 0; x < MAP_W; x += TILE) {
-            const n = (x * 37) % 97;
-            px(x, LANE_Y - 14, TILE, 7, n < 42 ? '#bd8647' : '#c8914f');
-            px(x + 4, LANE_Y + 2 + (n % 5), 10, 3, '#83562e');
-            px(x + 2, LANE_Y + 49, 12, 4, n > 55 ? '#7b5130' : '#b57c43');
-            if (n % 7 === 0) px(x + 6, LANE_Y + 24, 18, 3, '#7a4f2d');
-            if (n % 13 === 0) px(x + 9, LANE_Y - 21, 8, 8, '#8a846c');
-            if (n % 17 === 0) px(x + 3, LANE_Y + 60, 10, 6, '#8a846c');
-            px(x + 5, GROUND_Y + 12, 10, 4, '#3e2a1d');
-            if (n % 3 === 0) px(x + 2, GROUND_Y - 18, 12, 10, '#5c7b43');
-            if (n % 11 === 0) {
-                px(x + 8, GROUND_Y - 58, 8, 34, '#3c2a1b');
-                px(x, GROUND_Y - 72, 24, 18, '#315f37');
-                px(x + 5, GROUND_Y - 84, 20, 18, '#3f7a43');
+            ctx.save();
+            const sunX = MAP_W * 0.53;
+            px(sunX - 34, 56, 68, 68, 'rgba(255, 218, 132, 0.22)');
+            px(sunX - 22, 68, 44, 44, 'rgba(255, 238, 184, 0.35)');
+            for (let i = 0; i < 16; i++) {
+                const x = (i * 173) % MAP_W;
+                const y = 58 + (i * 47) % 120;
+                px(x, y, 52, 10, 'rgba(226, 232, 240, 0.16)');
+                px(x + 18, y - 8, 74, 12, 'rgba(226, 232, 240, 0.1)');
             }
+            for (let i = 0; i < 5; i++) {
+                const ridgeY = 248 + i * 20;
+                ctx.fillStyle = i % 2 ? '#263f3c' : '#315247';
+                ctx.beginPath();
+                ctx.moveTo(0, GROUND_Y);
+                for (let x = -80; x <= MAP_W + 80; x += 160) {
+                    ctx.lineTo(x, ridgeY + Math.sin((x + i * 90) / 120) * 28);
+                }
+                ctx.lineTo(MAP_W, GROUND_Y);
+                ctx.closePath();
+                ctx.globalAlpha = 0.55 - i * 0.06;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            px(0, GROUND_Y - 42, MAP_W, 42, '#4f6f3d');
+            px(0, GROUND_Y - 10, MAP_W, 10, '#7a5a34');
+            px(0, GROUND_Y, MAP_W, MAP_H - GROUND_Y, '#5f3f25');
+            px(0, GROUND_Y + 22, MAP_W, 18, '#4f3420');
+            px(0, LANE_Y - 30, MAP_W, 8, '#2f5131');
+            px(0, LANE_Y - 22, MAP_W, 8, '#6f6b58');
+            px(0, LANE_Y - 14, MAP_W, 72, '#a7743d');
+            px(0, LANE_Y + 58, MAP_W, 8, '#6f6b58');
+            px(0, LANE_Y + 66, MAP_W, 8, '#2f5131');
+            px(0, LANE_Y + 10, MAP_W, 11, 'rgba(65, 40, 22, 0.34)');
+            px(0, LANE_Y + 34, MAP_W, 8, 'rgba(65, 40, 22, 0.24)');
+            for (let x = 0; x < MAP_W; x += TILE) {
+                const n = (x * 37) % 97;
+                px(x, LANE_Y - 14, TILE, 7, n < 42 ? '#bd8647' : '#c8914f');
+                px(x + 4, LANE_Y + 2 + (n % 5), 10, 3, '#83562e');
+                px(x + 2, LANE_Y + 49, 12, 4, n > 55 ? '#7b5130' : '#b57c43');
+                if (n % 7 === 0) px(x + 6, LANE_Y + 24, 18, 3, '#7a4f2d');
+                if (n % 13 === 0) px(x + 9, LANE_Y - 21, 8, 8, '#8a846c');
+                if (n % 17 === 0) px(x + 3, LANE_Y + 60, 10, 6, '#8a846c');
+                px(x + 5, GROUND_Y + 12, 10, 4, '#3e2a1d');
+                if (n % 3 === 0) px(x + 2, GROUND_Y - 18, 12, 10, '#5c7b43');
+                if (n % 11 === 0) {
+                    px(x + 8, GROUND_Y - 58, 8, 34, '#3c2a1b');
+                    px(x, GROUND_Y - 72, 24, 18, '#315f37');
+                    px(x + 5, GROUND_Y - 84, 20, 18, '#3f7a43');
+                }
+            }
+            for (let x = 190; x < MAP_W - 190; x += 170) {
+                px(x, GROUND_Y + 48, 42, 8, '#3d2a1c');
+                px(x + 8, GROUND_Y + 40, 26, 8, '#77512f');
+            }
+            px(0, LANE_Y + 72, MAP_W, 4, 'rgba(47,36,23,0.35)');
+            ctx.restore();
+            ctx = liveCtx;
         }
-        for (let x = 190; x < MAP_W - 190; x += 170) {
-            px(x, GROUND_Y + 48, 42, 8, '#3d2a1c');
-            px(x + 8, GROUND_Y + 40, 26, 8, '#77512f');
-        }
-        px(0, LANE_Y + 72, MAP_W, 4, 'rgba(47,36,23,0.35)');
-        ctx.restore();
+
+        ctx.drawImage(mapBackgroundCanvas, 0, 0);
     }
 
     function drawBase(p) {
@@ -2881,7 +2912,7 @@ const Game = (function() {
         canvas.width = MAP_W;
         canvas.height = MAP_H;
         ctx = canvas.getContext('2d');
-        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.onmousemove = handleMouseMove;
         
         const count = MAX_PLAYERS;
         players = []; 
@@ -2893,6 +2924,9 @@ const Game = (function() {
         onlineActions = [];
         processedOnlineActionIds = new Set();
         processedVisualEventIds = new Set();
+        playerHudCache = [];
+        lastUnitButtonsUpdateFrame = -1;
+        mapBackgroundCanvas = null;
         
         const dash = document.getElementById('dashboard'); 
         dash.innerHTML = '';
