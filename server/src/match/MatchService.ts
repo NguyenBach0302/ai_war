@@ -488,7 +488,7 @@ export class MatchService {
 
     getBinaryUnitSize(unit: AnyObject): number {
         const buffCount = Array.isArray(unit.b) ? unit.b.length : 0;
-        return 33 + (buffCount * 6);
+        return 37 + (buffCount * 6);
     }
 
     encodeBinaryMatchState(payload: AnyObject): Buffer {

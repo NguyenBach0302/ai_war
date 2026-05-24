@@ -309,6 +309,10 @@ const Online = (function() {
             if (payload?.ok === false) setStatus(payload.message || 'Command rejected.');
             return;
         }
+        if (eventName === 'error') {
+            if (payload?.message) setStatus(payload.message);
+            return;
+        }
         if (eventName === 'player-disconnected') {
             setStatus('Opponent disconnected. Match can continue, but they may stop responding.');
             return;
@@ -331,10 +335,14 @@ const Online = (function() {
         socket = new WebSocket(`${protocol}//${location.host}/api/match/ws?matchId=${encodeURIComponent(matchId)}&token=${token}`);
         socket.binaryType = 'arraybuffer';
         socket.onopen = () => setStatus('Online socket connected.');
-        socket.onmessage = event => {
+        socket.onmessage = async event => {
             try {
                 if (event.data instanceof ArrayBuffer) {
                     handleRealtimeEvent('match-state', Game.decodeBinaryMatchState(event.data));
+                    return;
+                }
+                if (typeof Blob !== 'undefined' && event.data instanceof Blob) {
+                    handleRealtimeEvent('match-state', Game.decodeBinaryMatchState(await event.data.arrayBuffer()));
                     return;
                 }
                 const data = JSON.parse(event.data);
@@ -384,8 +392,12 @@ const Online = (function() {
         if (!currentMatchId) return;
         Game.previewOnlineBuy(unitType);
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'buy', unitType, requestId: commandSeq++ }));
-            return;
+            try {
+                socket.send(JSON.stringify({ type: 'buy', unitType, requestId: commandSeq++ }));
+                return;
+            } catch (err) {
+                console.warn('Socket buy failed, retrying over HTTP', err);
+            }
         }
         const res = await fetch('/api/match/action', {
             method: 'POST',
