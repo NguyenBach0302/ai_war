@@ -300,7 +300,7 @@ const Profile = (function() {
                 <button type="button" class="profile-popover-close" onclick="Profile.closePreview()">x</button>
                 ${renderPreview(unit)}
                 <button type="button" class="buy-btn primary-action profile-add-btn" onclick="Profile.addUnit(${jsString(unit.name)})" ${inDeck ? 'disabled' : ''}>
-                    ${inDeck ? 'Already In Deck' : 'Add Deck'}
+                    ${inDeck ? 'Already In Deck' : 'Add to Deck'}
                 </button>
             </div>
         `;
@@ -535,6 +535,10 @@ const Profile = (function() {
         if (loadout.unitNames.includes(unitName) && replaceIndex === null) {
             setStatus(`${unitName} is already in this deck.`);
             return;
+        }
+        if (!Number.isInteger(replaceIndex)) {
+            const emptyIndex = Array.from({ length: 5 }).findIndex((_, index) => !loadout.unitNames[index]);
+            if (emptyIndex >= 0) replaceIndex = emptyIndex;
         }
         if (Number.isInteger(replaceIndex)) {
             loadout.unitNames = loadout.unitNames.filter(name => name !== unitName);
