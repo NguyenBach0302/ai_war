@@ -459,7 +459,7 @@ const Profile = (function() {
                     <div class="profile-roster-head">
                         <div>
                             <div class="profile-deck-kicker">Unlocked Roster</div>
-                            <strong>Double click or drag cards into deck slots</strong>
+                            <strong>Tap a class to inspect, then add it to the deck</strong>
                         </div>
                         <span>${ownedUnits.length} units</span>
                     </div>
@@ -467,10 +467,10 @@ const Profile = (function() {
                         ${ownedUnits.map(unit => {
                             const selected = current.unitNames.includes(unit.name);
                             return `
-                                <div class="profile-roster-card ${selected ? 'selected' : ''}" tabindex="0" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                <button type="button" class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
-                                </div>
+                                </button>
                             `;
                         }).join('')}
                     </div>

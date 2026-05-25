@@ -1774,6 +1774,7 @@ canvas {
 
 .profile-roster-card {
   position: relative;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1788,6 +1789,7 @@ canvas {
   padding: 7px;
   cursor: grab;
   user-select: none;
+  font-family: var(--font-ui);
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -1853,8 +1855,8 @@ canvas {
 }
 
 .profile-deck-workbench.compact .profile-deck-slots {
-  grid-template-columns: repeat(5, minmax(54px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .profile-deck-workbench.compact .profile-deck-slot {
@@ -1862,17 +1864,17 @@ canvas {
   place-items: center;
   aspect-ratio: 1;
   min-height: 0;
-  padding: 6px;
+  padding: 5px;
 }
 
 .profile-deck-workbench.compact .profile-deck-slot .profile-unit-art {
-  width: 44px;
-  height: 44px;
+  width: min(42px, 100%);
+  height: min(42px, 100%);
 }
 
 .profile-deck-workbench.compact .profile-deck-slot .profile-unit-art img {
-  width: 36px;
-  height: 36px;
+  width: min(34px, 88%);
+  height: min(34px, 88%);
 }
 
 .profile-deck-workbench.compact .profile-deck-slot.empty span {
@@ -1905,7 +1907,7 @@ canvas {
 
 .profile-unit-popover {
   position: absolute;
-  inset: 12px;
+  inset: 8px;
   z-index: 6;
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -1917,7 +1919,7 @@ canvas {
     radial-gradient(circle at 18% 24%, rgba(56, 189, 248, 0.16), transparent 36%),
     linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98));
   box-shadow: 0 24px 50px rgba(0,0,0,0.56), 0 0 28px rgba(251, 191, 36, 0.16);
-  padding: 14px;
+  padding: 12px;
 }
 
 .profile-unit-popover .profile-preview-card {
@@ -2375,6 +2377,15 @@ canvas {
   .profile-stats {
     grid-template-columns: repeat(3, 1fr);
   }
+  .profile-stats div {
+    padding: 6px;
+  }
+  .profile-stats strong {
+    font-size: 13px;
+  }
+  .profile-stats span {
+    font-size: 8px;
+  }
   .profile-unit-list {
     grid-template-columns: 1fr;
   }
@@ -2399,6 +2410,33 @@ canvas {
   }
   .profile-roster-grid.compact {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+  }
+  .profile-roster-card {
+    padding: 4px;
+    gap: 3px;
+  }
+  .profile-roster-card .profile-unit-art {
+    width: 34px;
+    height: 34px;
+  }
+  .profile-roster-card .profile-unit-art img {
+    width: 28px;
+    height: 28px;
+  }
+  .profile-roster-name {
+    font-size: 8px;
+  }
+  .profile-deck-workbench.compact .profile-deck-slot {
+    padding: 3px;
+  }
+  .profile-deck-workbench.compact .profile-deck-slot .profile-unit-art {
+    width: min(34px, 100%);
+    height: min(34px, 100%);
+  }
+  .profile-deck-workbench.compact .profile-deck-slot .profile-unit-art img {
+    width: min(28px, 88%);
+    height: min(28px, 88%);
   }
   .profile-unit-popover {
     grid-template-columns: 1fr;
