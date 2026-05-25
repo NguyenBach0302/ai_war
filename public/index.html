@@ -162,13 +162,21 @@
                     <div class="brand-kicker">War Room</div>
                     <div class="setup-title">Strategic Configuration</div>
                 </div>
-                <div id="admin-setup-btn-wrap"></div>
+                <div class="setup-header-actions">
+                    <button class="buy-btn secondary-btn setup-small-btn" onclick="Profile.show()">Profile</button>
+                    <button class="buy-btn secondary-btn setup-small-btn" onclick="Auth.logout()">Logout</button>
+                    <div id="admin-setup-btn-wrap"></div>
+                </div>
             </div>
             
             <div class="match-strip">
                 <div class="match-meta">
                     <span>Match Type</span>
                     <strong>Commander vs Agent</strong>
+                </div>
+                <div class="setup-row">
+                    <label>Online Squad</label>
+                    <select id="online-loadout-slot"></select>
                 </div>
                 <div class="setup-row">
                     <label>Combatants</label>
@@ -187,6 +195,24 @@
                 <button class="buy-btn secondary-btn primary-action" onclick="Game.init()">Play vs AI</button>
             </div>
             <div id="online-status" class="online-status"></div>
+        </div>
+    </div>
+
+    <div id="profile-overlay" style="display:none;">
+        <div class="setup-box panel profile-panel">
+            <div class="setup-header">
+                <div>
+                    <div class="brand-kicker">Commander</div>
+                    <div class="setup-title">Profile</div>
+                    <div class="auth-subtitle" id="profile-summary"></div>
+                </div>
+                <button class="buy-btn secondary-btn setup-small-btn" onclick="Profile.hide()">Close</button>
+            </div>
+            <div class="profile-loadouts" id="profile-loadouts"></div>
+            <div class="setup-actions">
+                <button class="buy-btn primary-action" onclick="Profile.save()">Save Profile</button>
+            </div>
+            <div id="profile-status" class="online-status"></div>
         </div>
     </div>
 

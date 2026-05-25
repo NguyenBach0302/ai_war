@@ -473,6 +473,7 @@ export class MatchService {
                 id: idx,
                 userId: player.id,
                 name: player.username,
+                loadoutUnitNames: Array.isArray(player.loadoutUnitNames) ? player.loadoutUnitNames : [],
                 gold: 150,
                 hp: 2500,
                 maxHp: 2500,
@@ -726,6 +727,9 @@ export class MatchService {
         if (!/^[a-zA-Z0-9 _-]{1,40}$/.test(String(unitType || ''))) {
             return { ok: false, status: 400, message: 'Invalid unit type' };
         }
+        if (!this.isUnitAllowedForPlayer(match, playerIndex, String(unitType))) {
+            return { ok: false, status: 403, message: 'Unit is not in the selected loadout' };
+        }
 
         const serverFrame = match.sim?.frame ?? this.getMatchFrame(match);
         const actionId = Number(match.nextActionId || 1);
@@ -763,6 +767,7 @@ export class MatchService {
         const player = sim.players[playerIndex];
         const meta = sim.classes.get(unitType);
         if (!player || player.eliminated || !meta) return false;
+        if (Array.isArray(player.loadoutUnitNames) && player.loadoutUnitNames.length > 0 && !player.loadoutUnitNames.includes(unitType)) return false;
         const ownedCount = sim.units.filter((unit: AnyObject) => unit.owner === playerIndex).length;
         if (ownedCount >= this.SERVER_MAX_UNITS_PER_PLAYER) return false;
         const cost = Number(meta.cost || 0);
@@ -1180,10 +1185,13 @@ export class MatchService {
     }
 
     getMatchPayload(match: AnyObject, userId: number): AnyObject {
+        const player = match.players.find((player: AnyObject) => player.id === userId);
         return {
             matchId: match.id,
             playerIndex: match.players.findIndex((player: AnyObject) => player.id === userId),
             players: match.players.map((player: AnyObject) => ({ id: player.id, username: player.username })),
+            loadoutSlot: player?.loadoutSlot || 1,
+            loadoutUnitNames: player?.loadoutUnitNames || [],
             seed: match.seed,
             startsAt: match.startsAt,
             serverNow: Date.now(),
@@ -1200,6 +1208,12 @@ export class MatchService {
             console.warn('[Match] Unable to capture unit snapshot:', err.message);
             return null;
         }
+    }
+
+    isUnitAllowedForPlayer(match: AnyObject, playerIndex: number, unitType: string): boolean {
+        const player = match?.players?.[playerIndex];
+        const names = Array.isArray(player?.loadoutUnitNames) ? player.loadoutUnitNames : [];
+        return names.length === 0 || names.includes(unitType);
     }
 
     removeMatch(matchId: string): void {

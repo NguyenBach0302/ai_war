@@ -32,6 +32,17 @@ const Auth = (function() {
     let currentUser = null;
     let token = localStorage.getItem('token');
 
+    async function refreshProfile() {
+        if (!token) return null;
+        const res = await fetch('/api/user/profile', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Unable to load profile');
+        currentUser = await res.json();
+        updateUserStatus();
+        return currentUser;
+    }
+
     async function login() {
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
@@ -47,8 +58,8 @@ const Auth = (function() {
                 localStorage.setItem('token', data.token);
                 token = data.token;
                 currentUser = data.user;
+                await refreshProfile();
                 document.getElementById('auth-overlay').style.display = 'none';
-                updateUserStatus();
                 await Game.fetchUnits();
                 Game.checkActiveSession();
             } else {
@@ -180,12 +191,123 @@ const Auth = (function() {
         location.reload();
     }
 
-    return { login, register, toggleForm, showForm, checkSession, logout, getToken: () => token, getUser: () => currentUser };
+    function setUser(user) {
+        currentUser = user;
+        updateUserStatus();
+    }
+
+    return { login, register, toggleForm, showForm, checkSession, logout, refreshProfile, setUser, getToken: () => token, getUser: () => currentUser };
+})();
+
+const Profile = (function() {
+    function getOwnedUnits() {
+        return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
+    }
+
+    function getLoadouts() {
+        return Array.isArray(Auth.getUser()?.loadouts) ? Auth.getUser().loadouts : [];
+    }
+
+    function render() {
+        const user = Auth.getUser();
+        const summary = document.getElementById('profile-summary');
+        const container = document.getElementById('profile-loadouts');
+        if (!user || !container) return;
+        const ownedUnits = getOwnedUnits().filter(unit => Number(unit.cost || 0) > 0);
+        const loadouts = getLoadouts();
+        if (summary) summary.textContent = `${user.username} · ${user.gold} gold · ${ownedUnits.length} unlocked base units`;
+
+        container.innerHTML = [1, 2, 3].map(slot => {
+            const loadout = loadouts.find(item => Number(item.slot) === slot) || { slot, name: `Loadout ${slot}`, unitNames: [] };
+            const selected = new Set(Array.isArray(loadout.unitNames) ? loadout.unitNames : []);
+            return `
+                <div class="profile-loadout-card" data-loadout-slot="${slot}">
+                    <div class="profile-loadout-head">
+                        <input id="loadout-name-${slot}" value="${escapeHtml(loadout.name || `Loadout ${slot}`)}" maxlength="50">
+                        <label class="profile-active">
+                            <input type="radio" name="active-loadout" value="${slot}" ${user.activeLoadoutSlot === slot ? 'checked' : ''}>
+                            Active
+                        </label>
+                    </div>
+                    <div class="profile-unit-list">
+                        ${ownedUnits.map(unit => `
+                            <label class="profile-unit-option">
+                                <input type="checkbox" data-loadout-unit="${slot}" value="${escapeHtml(unit.name)}" ${selected.has(unit.name) ? 'checked' : ''} onchange="Profile.enforceLimit(${slot}, this)">
+                                <span>
+                                    <span class="profile-unit-name">${escapeHtml(unit.icon)} ${escapeHtml(unit.name)}</span>
+                                    <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
+                                </span>
+                                <span class="u-cost">${Number(unit.cost || 0)}g</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function show() {
+        render();
+        const overlay = document.getElementById('profile-overlay');
+        if (overlay) overlay.style.display = 'flex';
+    }
+
+    function hide() {
+        const overlay = document.getElementById('profile-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function enforceLimit(slot, changedInput) {
+        const checked = [...document.querySelectorAll(`[data-loadout-unit="${slot}"]:checked`)];
+        if (checked.length <= 5) return;
+        changedInput.checked = false;
+        const status = document.getElementById('profile-status');
+        if (status) status.textContent = 'Each loadout can include up to 5 units.';
+    }
+
+    async function save() {
+        const status = document.getElementById('profile-status');
+        const active = Number(document.querySelector('input[name="active-loadout"]:checked')?.value || 1);
+        const loadouts = [1, 2, 3].map(slot => ({
+            slot,
+            name: document.getElementById(`loadout-name-${slot}`)?.value || `Loadout ${slot}`,
+            unitNames: [...document.querySelectorAll(`[data-loadout-unit="${slot}"]:checked`)].map(input => input.value)
+        }));
+
+        if (loadouts.some(loadout => loadout.unitNames.length < 1 || loadout.unitNames.length > 5)) {
+            if (status) status.textContent = 'Each loadout must include 1-5 units.';
+            return;
+        }
+
+        try {
+            if (status) status.textContent = 'Saving profile...';
+            const res = await fetch('/api/user/loadouts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({ activeLoadoutSlot: active, loadouts })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Unable to save profile');
+            Auth.setUser(data);
+            Game.updateSetupUI();
+            const loadoutSelect = document.getElementById('online-loadout-slot');
+            if (loadoutSelect) loadoutSelect.value = String(data.activeLoadoutSlot || active);
+            render();
+            if (status) status.textContent = 'Profile saved.';
+        } catch (err) {
+            if (status) status.textContent = err.message || 'Unable to save profile.';
+        }
+    }
+
+    return { show, hide, save, enforceLimit, render };
 })();
 
 const UI = (function() {
     function forceReset() {
-        const overlays = ['auth-overlay', 'setup-overlay', 'resume-overlay', 'admin-overlay', 'victory-overlay'];
+        const overlays = ['auth-overlay', 'setup-overlay', 'resume-overlay', 'admin-overlay', 'victory-overlay', 'profile-overlay'];
         overlays.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
@@ -378,7 +500,11 @@ const Online = (function() {
         try {
             const res = await fetch('/api/match/join', {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${Auth.getToken()}` }
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({ loadoutSlot: Game.getSelectedLoadoutSlot() })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Unable to join online match');
@@ -591,6 +717,7 @@ const Game = (function() {
     let processedVisualEventIds = new Set();
     let pendingOnlineEvents = [];
     let onlineServerClockOffsetMs = 0;
+    let activeShopUnitNames = [];
     let mapBackgroundCanvas = null;
     let playerHudCache = [];
     let lastUnitButtonsUpdateFrame = -1;
@@ -677,6 +804,24 @@ const Game = (function() {
                 <span class="u-cost">${Number(unit.cost || 0)}g</span>
             </button>
         `;
+    }
+
+    function getUserLoadout(slot = null) {
+        const user = Auth.getUser();
+        const loadouts = Array.isArray(user?.loadouts) ? user.loadouts : [];
+        const targetSlot = Number(slot || getSelectedLoadoutSlot() || user?.activeLoadoutSlot || 1);
+        return loadouts.find(loadout => Number(loadout.slot) === targetSlot) || loadouts[0] || null;
+    }
+
+    function getSelectedLoadoutSlot() {
+        const select = document.getElementById('online-loadout-slot');
+        return Number(select?.value || Auth.getUser()?.activeLoadoutSlot || 1);
+    }
+
+    function getLoadoutUnitNames(slot = null) {
+        const loadout = getUserLoadout(slot);
+        const names = Array.isArray(loadout?.unitNames) ? loadout.unitNames : [];
+        return names.filter(name => CLASSES[name] && Number(CLASSES[name].cost || 0) > 0).slice(0, 5);
     }
 
     function decodeBinaryMatchState(buffer) {
@@ -1698,6 +1843,10 @@ const Game = (function() {
     }
 
     function buyUnit(type, pIdx = localPlayerIndex) {
+        if (pIdx === localPlayerIndex && activeShopUnitNames.length > 0 && !activeShopUnitNames.includes(type)) {
+            log(`${type} is not in the selected squad.`, '#f43f5e');
+            return;
+        }
         if (onlineMode) {
             if (pIdx !== localPlayerIndex) return;
             Online.sendBuy(type).catch(() => log('Unable to send online command.', '#f43f5e'));
@@ -3163,6 +3312,17 @@ const Game = (function() {
         const count = MAX_PLAYERS;
         const playerCountEl = document.getElementById('player-count');
         if (playerCountEl) playerCountEl.value = String(MAX_PLAYERS);
+        const loadoutSelect = document.getElementById('online-loadout-slot');
+        const user = Auth.getUser();
+        const loadouts = Array.isArray(user?.loadouts) ? user.loadouts : [];
+        if (loadoutSelect) {
+            const current = Number(loadoutSelect.value || user?.activeLoadoutSlot || 1);
+            loadoutSelect.innerHTML = loadouts.map(loadout => {
+                const unitNames = Array.isArray(loadout.unitNames) ? loadout.unitNames : [];
+                return `<option value="${Number(loadout.slot)}">${escapeHtml(loadout.name)} (${unitNames.length}/5)</option>`;
+            }).join('') || '<option value="1">Default Squad</option>';
+            loadoutSelect.value = String(loadouts.some(loadout => Number(loadout.slot) === current) ? current : (user?.activeLoadoutSlot || 1));
+        }
         const configContainer = document.getElementById('agents-config');
         if (!configContainer) return;
         
@@ -3339,6 +3499,9 @@ const Game = (function() {
         onlineMatchId = options.matchId || null;
         if (!onlineMode) Online.clearLocalMatch();
         else Online.renderPing();
+        activeShopUnitNames = Array.isArray(options.loadoutUnitNames) && options.loadoutUnitNames.length
+            ? options.loadoutUnitNames.filter(name => CLASSES[name] && Number(CLASSES[name].cost || 0) > 0).slice(0, 5)
+            : getLoadoutUnitNames();
         localPlayerIndex = onlineMode ? Number(options.playerIndex || 0) : 0;
         onlineAuthoritative = false;
         onlineStateSeq = 0;
@@ -3407,7 +3570,10 @@ const Game = (function() {
         }
 
         document.getElementById('deployment-hud').style.display = 'block';
-        document.getElementById('unit-buttons').innerHTML = Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0).map(renderShopUnitButton).join('');
+        const shopNames = activeShopUnitNames.length
+            ? activeShopUnitNames
+            : Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0);
+        document.getElementById('unit-buttons').innerHTML = shopNames.map(renderShopUnitButton).join('');
         updateUnitButtons();
         const mapWrap = document.getElementById('map-wrap');
         if (mapWrap) mapWrap.onscroll = updateGameplayOverlayPosition;
@@ -3463,7 +3629,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, getSelectedLoadoutSlot, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
 })();
 
 window.UI = UI;

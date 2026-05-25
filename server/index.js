@@ -24,6 +24,11 @@ const ADMIN_UNIT_FIELDS = new Set([
     'hp', 'mana', 'dmg', 'atk_speed', 'range', 'move_speed', 'armor', 'mres',
     'crit_chance', 'phys_pen', 'magic_pen', 'dodge', 'lifesteal', 'cost'
 ]);
+const DEFAULT_LOADOUTS = [
+    { slot: 1, name: 'Vanguard', unitNames: ['Guard', 'Bowman', 'Mage', 'Healer', 'Gunman'] },
+    { slot: 2, name: 'Strike Team', unitNames: ['Assassin', 'Bowman', 'Gunman', 'Iceman', 'ChilyGirl'] },
+    { slot: 3, name: 'Control Line', unitNames: ['Guard', 'Mage', 'Healer', 'Iceman', 'ChilyGirl'] }
+];
 
 const ICEMAN_UNIT = {
     name: 'Iceman',
@@ -131,6 +136,83 @@ async function ensureGameUnits() {
     await pool.query('DELETE FROM units WHERE name = ?', ['Hunter']);
 }
 
+async function ensureLoadoutTables() {
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_units (
+            user_id INT NOT NULL,
+            unit_id INT NOT NULL,
+            acquisition_source VARCHAR(30) DEFAULT 'base_free',
+            acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, unit_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+        )
+    `);
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_loadouts (
+            user_id INT NOT NULL,
+            slot TINYINT NOT NULL,
+            name VARCHAR(50) NOT NULL,
+            unit_names JSON NOT NULL,
+            is_active TINYINT(1) DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, slot),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    `);
+}
+
+async function ensureUserArmory(userId) {
+    await pool.query(`
+        INSERT IGNORE INTO user_units (user_id, unit_id, acquisition_source)
+        SELECT ?, id, 'base_free' FROM units
+    `, [userId]);
+
+    const [existing] = await pool.query('SELECT slot FROM user_loadouts WHERE user_id = ?', [userId]);
+    const existingSlots = new Set(existing.map(row => Number(row.slot)));
+    for (const loadout of DEFAULT_LOADOUTS) {
+        if (existingSlots.has(loadout.slot)) continue;
+        await pool.query(
+            'INSERT INTO user_loadouts (user_id, slot, name, unit_names, is_active) VALUES (?, ?, ?, ?, ?)',
+            [userId, loadout.slot, loadout.name, JSON.stringify(loadout.unitNames), loadout.slot === 1 ? 1 : 0]
+        );
+    }
+}
+
+async function getUserProfilePayload(userId) {
+    await ensureUserArmory(userId);
+    const [[user]] = await pool.query('SELECT id, username, gold, wins, losses, role FROM users WHERE id = ?', [userId]);
+    const [ownedUnits] = await pool.query(`
+        SELECT u.*, uu.acquisition_source
+        FROM units u
+        JOIN user_units uu ON uu.unit_id = u.id
+        WHERE uu.user_id = ?
+        ORDER BY u.id ASC
+    `, [userId]);
+    const [loadoutRows] = await pool.query('SELECT slot, name, unit_names, is_active FROM user_loadouts WHERE user_id = ? ORDER BY slot ASC', [userId]);
+    const loadouts = loadoutRows.map(row => ({
+        slot: Number(row.slot),
+        name: row.name,
+        unitNames: typeof row.unit_names === 'string' ? JSON.parse(row.unit_names) : row.unit_names,
+        isActive: !!row.is_active
+    }));
+    return { ...user, ownedUnits, loadouts, activeLoadoutSlot: loadouts.find(loadout => loadout.isActive)?.slot || 1 };
+}
+
+async function resolveUserLoadout(userId, requestedSlot) {
+    await ensureUserArmory(userId);
+    const slot = [1, 2, 3].includes(Number(requestedSlot)) ? Number(requestedSlot) : null;
+    const params = slot ? [userId, slot] : [userId];
+    const query = slot
+        ? 'SELECT slot, unit_names FROM user_loadouts WHERE user_id = ? AND slot = ?'
+        : 'SELECT slot, unit_names FROM user_loadouts WHERE user_id = ? AND is_active = 1 ORDER BY slot ASC LIMIT 1';
+    const [rows] = await pool.query(query, params);
+    const row = rows[0];
+    if (!row) return DEFAULT_LOADOUTS[0].unitNames;
+    const unitNames = typeof row.unit_names === 'string' ? JSON.parse(row.unit_names) : row.unit_names;
+    return Array.isArray(unitNames) ? unitNames.slice(0, 5) : DEFAULT_LOADOUTS[0].unitNames;
+}
+
 app.post('/api/auth/register', asyncHandler(async (req, res) => {
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
@@ -184,8 +266,40 @@ app.post('/api/admin/units/update', authenticate, isAdmin, asyncHandler(async (r
 }));
 
 app.get('/api/user/profile', authenticate, asyncHandler(async (req, res) => {
-    const [users] = await pool.query('SELECT id, username, gold, wins, losses, role FROM users WHERE id = ?', [req.user.id]);
-    res.json(users[0]);
+    res.json(await getUserProfilePayload(req.user.id));
+}));
+
+app.post('/api/user/loadouts', authenticate, asyncHandler(async (req, res) => {
+    await ensureUserArmory(req.user.id);
+    const [ownedRows] = await pool.query(`
+        SELECT u.name
+        FROM units u
+        JOIN user_units uu ON uu.unit_id = u.id
+        WHERE uu.user_id = ?
+    `, [req.user.id]);
+    const ownedNames = new Set(ownedRows.map(row => row.name));
+    const loadouts = Array.isArray(req.body.loadouts) ? req.body.loadouts : [];
+    const activeLoadoutSlot = [1, 2, 3].includes(Number(req.body.activeLoadoutSlot)) ? Number(req.body.activeLoadoutSlot) : 1;
+
+    for (const rawLoadout of loadouts) {
+        const slot = Number(rawLoadout.slot);
+        if (![1, 2, 3].includes(slot)) {
+            return res.status(400).json({ message: 'Invalid loadout slot' });
+        }
+        const unitNames = [...new Set((Array.isArray(rawLoadout.unitNames) ? rawLoadout.unitNames : []).map(name => String(name)))];
+        if (unitNames.length < 1 || unitNames.length > 5 || unitNames.some(name => !ownedNames.has(name))) {
+            return res.status(400).json({ message: 'Each loadout must contain 1-5 owned units' });
+        }
+        const name = String(rawLoadout.name || `Loadout ${slot}`).trim().slice(0, 50) || `Loadout ${slot}`;
+        await pool.query(
+            `INSERT INTO user_loadouts (user_id, slot, name, unit_names, is_active)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE name = VALUES(name), unit_names = VALUES(unit_names), is_active = VALUES(is_active)`,
+            [req.user.id, slot, name, JSON.stringify(unitNames), slot === activeLoadoutSlot ? 1 : 0]
+        );
+    }
+    await pool.query('UPDATE user_loadouts SET is_active = IF(slot = ?, 1, 0) WHERE user_id = ?', [activeLoadoutSlot, req.user.id]);
+    res.json(await getUserProfilePayload(req.user.id));
 }));
 
 app.post('/api/session/save', authenticate, asyncHandler(async (req, res) => {
@@ -216,7 +330,13 @@ app.post('/api/session/clear', authenticate, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/match/join', authenticate, asyncHandler(async (req, res) => {
-    const payload = await matchService.joinMatch({ id: req.user.id, username: req.user.username });
+    const loadoutUnitNames = await resolveUserLoadout(req.user.id, req.body?.loadoutSlot);
+    const payload = await matchService.joinMatch({
+        id: req.user.id,
+        username: req.user.username,
+        loadoutSlot: [1, 2, 3].includes(Number(req.body?.loadoutSlot)) ? Number(req.body.loadoutSlot) : null,
+        loadoutUnitNames
+    });
     res.json(payload);
 }));
 
@@ -358,7 +478,8 @@ app.post('/api/ai/strategy', authenticate, asyncHandler(async (req, res) => {
 }));
 
 ensureGameUnits()
-    .catch(err => console.error('[Unit Migration] Unable to ensure game units:', err.message))
+    .then(ensureLoadoutTables)
+    .catch(err => console.error('[Unit Migration] Unable to ensure game units/loadouts:', err.message))
     .finally(() => {
         server.listen(PORT, () => {
             console.log(`Age of Agents Secured Server running at http://localhost:${PORT}`);

@@ -56,6 +56,28 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS user_units (
+    user_id INT NOT NULL,
+    unit_id INT NOT NULL,
+    acquisition_source VARCHAR(30) DEFAULT 'base_free',
+    acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, unit_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_loadouts (
+    user_id INT NOT NULL,
+    slot TINYINT NOT NULL,
+    name VARCHAR(50) NOT NULL,
+    unit_names JSON NOT NULL,
+    is_active TINYINT(1) DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, slot),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CHECK (slot BETWEEN 1 AND 3)
+);
+
 -- Seed units table with data from the game
 INSERT IGNORE INTO units (name, icon, hp, mana, move_speed, `range`, dmg, atk_speed, cost, special, role, dmg_type, crit_chance, armor, mres, phys_pen, magic_pen, dodge, lifesteal) VALUES
     ('Guard', '🛡️', 200, 100, 1.5, 25, 15, 0.8, 80, 'Block: Heal 20% HP and gain +50 armor/+50 magic armor for 8s', 'Tanker', 'physical', 0, 60, 30, 0, 0, 0.1, 0),
