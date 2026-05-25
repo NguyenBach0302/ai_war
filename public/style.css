@@ -1628,6 +1628,183 @@ canvas {
   line-height: 1;
 }
 
+.profile-deck-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.profile-deck-tabs button {
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.52);
+  color: var(--command-text);
+  cursor: pointer;
+  text-align: left;
+  padding: 10px 12px;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.profile-deck-tabs button span,
+.profile-deck-tabs button strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-deck-tabs button span {
+  color: #7dd3fc;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.profile-deck-tabs button strong {
+  color: var(--text-main);
+  font-size: 15px;
+  margin-top: 4px;
+}
+
+.profile-deck-tabs button.active {
+  border-color: rgba(251, 191, 36, 0.88);
+  background: linear-gradient(180deg, rgba(69, 43, 8, 0.48), rgba(15, 23, 42, 0.72));
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.16);
+}
+
+.profile-deck-workbench {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.35fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.profile-active-deck {
+  min-height: 100%;
+}
+
+.profile-deck-slots {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+.profile-deck-slot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 72px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.22);
+  padding: 8px;
+}
+
+.profile-deck-slot.filled {
+  border-style: solid;
+  border-color: rgba(251, 191, 36, 0.56);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(2, 6, 23, 0.68));
+}
+
+.profile-deck-slot.empty {
+  display: grid;
+  place-items: center;
+  grid-template-columns: 1fr;
+  color: var(--command-muted);
+  font-family: var(--font-data);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.profile-deck-slot button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(239, 68, 68, 0.48);
+  border-radius: 999px;
+  background: rgba(69, 10, 10, 0.68);
+  color: #fecaca;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.profile-roster-panel {
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 6px;
+  background: rgba(2, 6, 23, 0.38);
+  padding: 14px;
+}
+
+.profile-roster-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.profile-roster-head strong {
+  display: block;
+  color: var(--text-main);
+  font-size: 15px;
+}
+
+.profile-roster-head > span {
+  color: #f2c45d;
+  font-family: var(--font-data);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.profile-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 9px;
+  max-height: 430px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.profile-roster-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 76px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.7), rgba(2, 6, 23, 0.66));
+  color: var(--command-text);
+  padding: 8px;
+  cursor: grab;
+  user-select: none;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.profile-roster-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.7);
+}
+
+.profile-roster-card.selected {
+  border-color: rgba(251, 191, 36, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.16), 0 0 16px rgba(251, 191, 36, 0.12);
+}
+
+.profile-roster-card .profile-unit-cost {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+}
+
 /* AGENT SETUP CARDS */
 .setup-grid-config { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 15px; margin-bottom: 20px; }
 .agent-setup-card {
@@ -1907,6 +2084,14 @@ canvas {
   }
   .profile-unit-list {
     grid-template-columns: 1fr;
+  }
+  .profile-deck-tabs,
+  .profile-deck-workbench {
+    grid-template-columns: 1fr;
+  }
+  .profile-roster-grid {
+    grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+    max-height: none;
   }
   .setup-row {
     justify-content: space-between;

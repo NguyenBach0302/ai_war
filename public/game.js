@@ -200,12 +200,55 @@ const Auth = (function() {
 })();
 
 const Profile = (function() {
+    let editingSlot = 1;
+    let draftLoadouts = null;
+    let activeLoadoutSlotDraft = 1;
+
     function getOwnedUnits() {
         return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
     }
 
     function getLoadouts() {
         return Array.isArray(Auth.getUser()?.loadouts) ? Auth.getUser().loadouts : [];
+    }
+
+    function jsString(value) {
+        return JSON.stringify(String(value || ''));
+    }
+
+    function getOwnedUnitMap() {
+        return new Map(getOwnedUnits().map(unit => [unit.name, unit]));
+    }
+
+    function buildDraftLoadouts() {
+        const user = Auth.getUser();
+        const saved = getLoadouts();
+        draftLoadouts = [1, 2, 3].map(slot => {
+            const loadout = saved.find(item => Number(item.slot) === slot) || {};
+            return {
+                slot,
+                name: loadout.name || `Deck ${slot}`,
+                unitNames: Array.isArray(loadout.unitNames) ? loadout.unitNames.slice(0, 5) : []
+            };
+        });
+        activeLoadoutSlotDraft = Number(user?.activeLoadoutSlot || 1);
+        editingSlot = activeLoadoutSlotDraft;
+    }
+
+    function getDraft(slot = editingSlot) {
+        if (!draftLoadouts) buildDraftLoadouts();
+        return draftLoadouts.find(loadout => Number(loadout.slot) === Number(slot)) || draftLoadouts[0];
+    }
+
+    function syncDeckName() {
+        const input = document.getElementById(`loadout-name-${editingSlot}`);
+        const loadout = getDraft(editingSlot);
+        if (input && loadout) loadout.name = input.value.trim() || `Deck ${editingSlot}`;
+    }
+
+    function setStatus(message) {
+        const status = document.getElementById('profile-status');
+        if (status) status.textContent = message || '';
     }
 
     function render() {
@@ -290,7 +333,112 @@ const Profile = (function() {
         }).join('');
     }
 
+    function render() {
+        const user = Auth.getUser();
+        const summary = document.getElementById('profile-summary');
+        const container = document.getElementById('profile-loadouts');
+        if (!user || !container) return;
+        const ownedUnits = getOwnedUnits().filter(unit => Number(unit.cost || 0) > 0);
+        if (!draftLoadouts) buildDraftLoadouts();
+        const activeSlot = Number(activeLoadoutSlotDraft || user.activeLoadoutSlot || 1);
+        const current = getDraft(editingSlot);
+        const ownedMap = getOwnedUnitMap();
+
+        if (summary) {
+            summary.innerHTML = `
+                <div class="profile-identity">
+                    <div class="profile-avatar">${escapeHtml(String(user.username || 'A').slice(0, 2).toUpperCase())}</div>
+                    <div>
+                        <div class="profile-name">${escapeHtml(user.username)}</div>
+                        <div class="profile-caption">Battle Deck Commander</div>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div><strong>${Number(user.gold || 0)}</strong><span>Gold</span></div>
+                    <div><strong>${Number(user.wins || 0)} / ${Number(user.losses || 0)}</strong><span>W / L</span></div>
+                    <div><strong>${ownedUnits.length}</strong><span>Unlocked</span></div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = `
+            <div class="profile-deck-tabs">
+                ${draftLoadouts.map(loadout => `
+                    <button type="button" class="${loadout.slot === editingSlot ? 'active' : ''}" onclick="Profile.selectDeck(${loadout.slot})">
+                        <span>Deck ${loadout.slot}</span>
+                        <strong>${escapeHtml(loadout.name)}</strong>
+                    </button>
+                `).join('')}
+            </div>
+
+            <div class="profile-deck-workbench">
+                <div class="profile-loadout-card profile-active-deck" data-loadout-slot="${editingSlot}">
+                    <div class="profile-loadout-head">
+                        <div>
+                            <div class="profile-deck-kicker">Selected Deck ${editingSlot}</div>
+                            <input id="loadout-name-${editingSlot}" value="${escapeHtml(current.name)}" maxlength="50" oninput="Profile.syncDeckName()">
+                        </div>
+                        <label class="profile-active ${activeSlot === editingSlot ? 'is-active' : ''}">
+                            <input type="radio" name="active-loadout" value="${editingSlot}" ${activeSlot === editingSlot ? 'checked' : ''} onchange="Profile.setActiveDeck(${editingSlot})">
+                            Use Online
+                        </label>
+                    </div>
+                    <div class="profile-deck-meter">
+                        <span>${current.unitNames.length}/5 selected</span>
+                        <div><i style="width:${Math.min(100, current.unitNames.length * 20)}%"></i></div>
+                    </div>
+                    <div class="profile-deck-slots" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event)">
+                        ${Array.from({ length: 5 }).map((_, index) => {
+                            const unitName = current.unitNames[index];
+                            const unit = unitName ? ownedMap.get(unitName) : null;
+                            return unit ? `
+                                <div class="profile-deck-slot filled" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                    <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
+                                    <span class="profile-unit-copy">
+                                        <span class="profile-unit-name">${escapeHtml(unit.name)}</span>
+                                        <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
+                                    </span>
+                                    <button type="button" onclick="Profile.removeUnit(${index})">x</button>
+                                </div>
+                            ` : `
+                                <div class="profile-deck-slot empty" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                    <span>Drop Unit</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <div class="profile-roster-panel">
+                    <div class="profile-roster-head">
+                        <div>
+                            <div class="profile-deck-kicker">Unlocked Roster</div>
+                            <strong>Double click or drag cards into deck slots</strong>
+                        </div>
+                        <span>${ownedUnits.length} units</span>
+                    </div>
+                    <div class="profile-roster-grid">
+                        ${ownedUnits.map(unit => {
+                            const selected = current.unitNames.includes(unit.name);
+                            return `
+                                <div class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                    <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
+                                    <span class="profile-unit-copy">
+                                        <span class="profile-unit-name">${escapeHtml(unit.name)}</span>
+                                        <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
+                                    </span>
+                                    <span class="profile-unit-cost">${Number(unit.cost || 0)}g</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     function show() {
+        draftLoadouts = null;
         render();
         const overlay = document.getElementById('profile-overlay');
         if (overlay) overlay.style.display = 'flex';
@@ -309,13 +457,74 @@ const Profile = (function() {
         if (status) status.textContent = 'Each loadout can include up to 5 units.';
     }
 
+    function selectDeck(slot) {
+        syncDeckName();
+        editingSlot = Number(slot) || 1;
+        render();
+    }
+
+    function setActiveDeck(slot) {
+        activeLoadoutSlotDraft = Number(slot) || editingSlot;
+        render();
+    }
+
+    function allowDrop(event) {
+        event.preventDefault();
+    }
+
+    function dragUnit(event, unitName) {
+        event.dataTransfer.setData('text/unit', unitName);
+        event.dataTransfer.effectAllowed = 'copy';
+    }
+
+    function addUnit(unitName, replaceIndex = null) {
+        syncDeckName();
+        const loadout = getDraft(editingSlot);
+        const ownedMap = getOwnedUnitMap();
+        if (!ownedMap.has(unitName)) return;
+        if (loadout.unitNames.includes(unitName) && replaceIndex === null) {
+            setStatus(`${unitName} is already in this deck.`);
+            return;
+        }
+        if (Number.isInteger(replaceIndex)) {
+            loadout.unitNames = loadout.unitNames.filter(name => name !== unitName);
+            loadout.unitNames[replaceIndex] = unitName;
+            loadout.unitNames = loadout.unitNames.filter(Boolean).slice(0, 5);
+            setStatus('');
+            render();
+            return;
+        }
+        if (loadout.unitNames.length >= 5) {
+            setStatus('This deck already has 5 units.');
+            return;
+        }
+        loadout.unitNames.push(unitName);
+        setStatus('');
+        render();
+    }
+
+    function dropUnit(event, replaceIndex = null) {
+        event.preventDefault();
+        const unitName = event.dataTransfer.getData('text/unit');
+        if (unitName) addUnit(unitName, Number.isInteger(replaceIndex) ? replaceIndex : null);
+    }
+
+    function removeUnit(index) {
+        syncDeckName();
+        const loadout = getDraft(editingSlot);
+        loadout.unitNames.splice(index, 1);
+        setStatus('');
+        render();
+    }
+
     async function save() {
+        syncDeckName();
         const status = document.getElementById('profile-status');
-        const active = Number(document.querySelector('input[name="active-loadout"]:checked')?.value || 1);
-        const loadouts = [1, 2, 3].map(slot => ({
-            slot,
-            name: document.getElementById(`loadout-name-${slot}`)?.value || `Loadout ${slot}`,
-            unitNames: [...document.querySelectorAll(`[data-loadout-unit="${slot}"]:checked`)].map(input => input.value)
+        const active = Number(activeLoadoutSlotDraft || document.querySelector('input[name="active-loadout"]:checked')?.value || 1);
+        const loadouts = (draftLoadouts || []).map(loadout => ({
+            slot: loadout.slot,
+            name: loadout.name || `Deck ${loadout.slot}`,
+            unitNames: loadout.unitNames.slice(0, 5)
         }));
 
         if (loadouts.some(loadout => loadout.unitNames.length < 1 || loadout.unitNames.length > 5)) {
@@ -346,7 +555,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, enforceLimit, render };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit };
 })();
 
 const UI = (function() {
