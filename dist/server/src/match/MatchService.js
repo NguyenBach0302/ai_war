@@ -8,8 +8,10 @@ class MatchService {
     MATCH_TTL_MS = 1000 * 60 * 60;
     MATCH_FPS = 60;
     MATCH_ACTION_DELAY_FRAMES = 0;
+    MATCH_BROADCAST_EVERY_FRAMES_LOW_LOAD = 2;
     MATCH_BROADCAST_EVERY_FRAMES = 4;
     MATCH_BROADCAST_EVERY_FRAMES_HIGH_LOAD = 6;
+    MATCH_BROADCAST_EVERY_FRAMES_VERY_HIGH_LOAD = 8;
     FULL_SNAPSHOT_EVERY_FRAMES = 60;
     SERVER_GOLD_RATE = 0.15;
     SERVER_MAP_W = 2400;
@@ -400,7 +402,13 @@ class MatchService {
     }
     getBroadcastEveryFrames(sim) {
         const unitCount = Array.isArray(sim?.units) ? sim.units.length : 0;
-        return unitCount >= 40 ? this.MATCH_BROADCAST_EVERY_FRAMES_HIGH_LOAD : this.MATCH_BROADCAST_EVERY_FRAMES;
+        if (unitCount >= 70)
+            return this.MATCH_BROADCAST_EVERY_FRAMES_VERY_HIGH_LOAD;
+        if (unitCount >= 40)
+            return this.MATCH_BROADCAST_EVERY_FRAMES_HIGH_LOAD;
+        if (unitCount <= 16)
+            return this.MATCH_BROADCAST_EVERY_FRAMES_LOW_LOAD;
+        return this.MATCH_BROADCAST_EVERY_FRAMES;
     }
     applyServerDamage(match, attacker, target, baseDmg, type, skill = null) {
         const sim = match.sim;
