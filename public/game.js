@@ -213,13 +213,19 @@ const Online = (function() {
         const wrap = document.getElementById('connection-stats');
         const value = document.getElementById('ping-value');
         if (!wrap || !value) return;
+        wrap.classList.remove('ping-good', 'ping-warn', 'ping-bad');
         if (!currentMatchId) {
             wrap.style.display = 'none';
             value.textContent = '--';
             return;
         }
         wrap.style.display = 'inline-flex';
-        value.textContent = Number.isFinite(pingMs) ? String(Math.round(pingMs)) : '--';
+        const roundedPing = Number.isFinite(pingMs) ? Math.round(pingMs) : null;
+        value.textContent = roundedPing === null ? '--' : String(roundedPing);
+        if (roundedPing === null) return;
+        if (roundedPing < 90) wrap.classList.add('ping-good');
+        else if (roundedPing < 180) wrap.classList.add('ping-warn');
+        else wrap.classList.add('ping-bad');
     }
 
     async function measurePing() {
