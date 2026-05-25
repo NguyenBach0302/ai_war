@@ -1475,7 +1475,7 @@ canvas {
 
 .profile-loadout-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border-color: rgba(56, 189, 248, 0.26);
   background:
     linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.88)),
@@ -1870,6 +1870,9 @@ canvas {
 }
 
 .profile-deck-workbench.compact .profile-deck-slot {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
   grid-template-columns: 1fr;
   place-items: center;
   aspect-ratio: 1;
@@ -1895,6 +1898,9 @@ canvas {
 }
 
 button.profile-deck-slot.empty {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
   cursor: pointer;
   color: inherit;
   font-family: var(--font-ui);
@@ -1928,7 +1934,10 @@ button.profile-deck-slot.empty:hover {
 
 .profile-unit-popover {
   position: absolute;
-  inset: 8px;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  min-height: 300px;
   z-index: 6;
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -1967,6 +1976,8 @@ button.profile-deck-slot.empty:hover {
   grid-column: 2;
   align-self: end;
   min-height: 38px;
+  position: sticky;
+  bottom: 0;
 }
 
 .profile-add-btn:disabled {
@@ -2462,6 +2473,11 @@ button.profile-deck-slot.empty:hover {
   .profile-unit-popover {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto;
+    left: 6px;
+    right: 6px;
+    top: 6px;
+    min-height: 420px;
+    max-height: calc(var(--app-height) - 52px);
     overflow-y: auto;
   }
   .profile-unit-popover .profile-preview-stage {
