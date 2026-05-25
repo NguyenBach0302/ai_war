@@ -3209,7 +3209,7 @@ const Game = (function() {
         const wrap = document.getElementById('map-wrap');
         if (!wrap) return;
         wrap.scrollBy({ left: delta, behavior: 'smooth' });
-        requestAnimationFrame(updateDeploymentHudPosition);
+        requestAnimationFrame(updateGameplayOverlayPosition);
     }
 
     function focusCamera(target = 'home') {
@@ -3221,7 +3221,7 @@ const Game = (function() {
             enemy: Math.max(0, wrap.scrollWidth - wrap.clientWidth)
         };
         wrap.scrollTo({ left: positions[target] ?? positions.home, behavior: 'smooth' });
-        requestAnimationFrame(updateDeploymentHudPosition);
+        requestAnimationFrame(updateGameplayOverlayPosition);
     }
 
     function getCameraScrollCenter(wrap) {
@@ -3247,11 +3247,11 @@ const Game = (function() {
             requestAnimationFrame(() => {
                 wrap.scrollLeft = Math.max(0, scrollCenter.x * wrap.scrollWidth - wrap.clientWidth / 2);
                 wrap.scrollTop = Math.max(0, scrollCenter.y * wrap.scrollHeight - wrap.clientHeight / 2);
-                updateDeploymentHudPosition();
+                updateGameplayOverlayPosition();
             });
             return;
         }
-        requestAnimationFrame(updateDeploymentHudPosition);
+        requestAnimationFrame(updateGameplayOverlayPosition);
     }
 
     function setCameraZoom(value) {
@@ -3271,15 +3271,42 @@ const Game = (function() {
         zoomCamera(e.deltaY > 0 ? -CAMERA_ZOOM_STEP : CAMERA_ZOOM_STEP);
     }
 
-    function updateDeploymentHudPosition() {
+    function updateGameplayOverlayPosition() {
         const wrap = document.getElementById('map-wrap');
+        const cameraControls = document.getElementById('camera-controls');
+        const stats = document.getElementById('connection-stats');
         const hud = document.getElementById('deployment-hud');
-        if (!wrap || !hud) return;
+        if (!wrap) return;
         if (window.matchMedia('(max-width: 950px), (pointer: coarse) and (max-height: 520px)').matches) {
-            hud.style.left = '';
+            [cameraControls, stats, hud].forEach(el => {
+                if (!el) return;
+                el.style.left = '';
+                el.style.top = '';
+                el.style.right = '';
+                el.style.bottom = '';
+            });
             return;
         }
-        hud.style.left = `${wrap.scrollLeft + wrap.clientWidth / 2}px`;
+
+        const inset = 12;
+        if (cameraControls) {
+            cameraControls.style.left = `${wrap.scrollLeft + inset}px`;
+            cameraControls.style.top = `${wrap.scrollTop + inset}px`;
+        }
+
+        if (stats) {
+            const statsWidth = stats.offsetWidth || 110;
+            stats.style.left = `${wrap.scrollLeft + wrap.clientWidth - statsWidth - inset}px`;
+            stats.style.top = `${wrap.scrollTop + inset}px`;
+            stats.style.right = 'auto';
+        }
+
+        if (hud) {
+            const hudHeight = hud.offsetHeight || 0;
+            hud.style.left = `${wrap.scrollLeft + wrap.clientWidth / 2}px`;
+            hud.style.top = `${wrap.scrollTop + wrap.clientHeight - hudHeight - 15}px`;
+            hud.style.bottom = 'auto';
+        }
     }
 
     async function toggleFullscreen() {
@@ -3301,7 +3328,7 @@ const Game = (function() {
             console.warn('Fullscreen request was blocked by the browser:', err);
         } finally {
             MobileViewport.sync();
-            requestAnimationFrame(updateDeploymentHudPosition);
+            requestAnimationFrame(updateGameplayOverlayPosition);
         }
     }
 
@@ -3383,19 +3410,19 @@ const Game = (function() {
         document.getElementById('unit-buttons').innerHTML = Object.keys(CLASSES).filter(k => CLASSES[k].cost > 0).map(renderShopUnitButton).join('');
         updateUnitButtons();
         const mapWrap = document.getElementById('map-wrap');
-        if (mapWrap) mapWrap.onscroll = updateDeploymentHudPosition;
+        if (mapWrap) mapWrap.onscroll = updateGameplayOverlayPosition;
         applyCameraZoom();
         if (mapWrap && !cameraWheelListenerAttached) {
             mapWrap.addEventListener('wheel', handleCameraWheel, { passive: false });
             cameraWheelListenerAttached = true;
         }
         if (!hudResizeListenerAttached) {
-            window.addEventListener('resize', updateDeploymentHudPosition, { passive: true });
-            window.visualViewport?.addEventListener('resize', updateDeploymentHudPosition, { passive: true });
-            document.addEventListener('fullscreenchange', updateDeploymentHudPosition);
+            window.addEventListener('resize', updateGameplayOverlayPosition, { passive: true });
+            window.visualViewport?.addEventListener('resize', updateGameplayOverlayPosition, { passive: true });
+            document.addEventListener('fullscreenchange', updateGameplayOverlayPosition);
             hudResizeListenerAttached = true;
         }
-        updateDeploymentHudPosition();
+        updateGameplayOverlayPosition();
         
         log(onlineMode ? `ONLINE MATCH ${onlineMatchId} LINKED.` : (state ? `SESSION RESUMED AT FRAME ${frameCount}.` : `STRATEGIC SESSION INITIALIZED.`), '#38bdf8');
         log(`Commander ${players[localPlayerIndex].name} online.`, '#fff');
@@ -3404,7 +3431,7 @@ const Game = (function() {
         const pauseBtn = document.getElementById('pause-btn');
         if (pauseBtn) pauseBtn.innerText = 'PAUSE';
         const firstFocus = localPlayerIndex === 0 ? 'home' : 'enemy';
-        setTimeout(() => { focusCamera(firstFocus); updateDeploymentHudPosition(); }, 0);
+        setTimeout(() => { focusCamera(firstFocus); updateGameplayOverlayPosition(); }, 0);
         const startDelay = onlineMode ? Math.max(0, onlineStartsAtServerMs - serverNowMs()) : 0;
         if (onlineMode && startDelay > 0) log(`Battle starts in ${Math.ceil(startDelay / 1000)} seconds.`, '#fbbf24');
         setTimeout(() => {
