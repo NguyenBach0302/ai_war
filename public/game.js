@@ -207,6 +207,7 @@ const Profile = (function() {
     let lastTapUnitName = null;
     let lastTapAt = 0;
     let selectedRosterUnitName = null;
+    let pendingFillSlotIndex = null;
 
     function getOwnedUnits() {
         return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
@@ -451,10 +452,9 @@ const Profile = (function() {
                                     <button type="button" onclick="Profile.removeUnit(${index})">x</button>
                                 </div>
                             ` : `
-                                <button type="button" class="profile-deck-slot empty" onclick="Profile.fillSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                <button type="button" class="profile-deck-slot empty ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.fillSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
                                     <span>+</span>
                                 </button>
-                                </div>
                             `;
                         }).join('')}
                     </div>
@@ -510,6 +510,7 @@ const Profile = (function() {
         editingSlot = Number(slot) || 1;
         selectedPreviewUnitName = null;
         selectedRosterUnitName = null;
+        pendingFillSlotIndex = null;
         render();
     }
 
@@ -546,6 +547,7 @@ const Profile = (function() {
             loadout.unitNames = loadout.unitNames.filter(Boolean).slice(0, 5);
             selectedPreviewUnitName = null;
             selectedRosterUnitName = null;
+            pendingFillSlotIndex = null;
             setStatus('');
             render();
             return;
@@ -557,13 +559,16 @@ const Profile = (function() {
         loadout.unitNames.push(unitName);
         selectedPreviewUnitName = null;
         selectedRosterUnitName = null;
+        pendingFillSlotIndex = null;
         setStatus('');
         render();
     }
 
     function fillSlot(index) {
         if (!selectedRosterUnitName) {
-            setStatus('Select a unit from the roster first.');
+            pendingFillSlotIndex = index;
+            setStatus('Select a unit from the roster to fill this slot.');
+            render();
             return;
         }
         addUnit(selectedRosterUnitName, index);
@@ -584,6 +589,11 @@ const Profile = (function() {
     }
 
     function previewUnit(unitName) {
+        if (Number.isInteger(pendingFillSlotIndex)) {
+            const targetIndex = pendingFillSlotIndex;
+            addUnit(unitName, targetIndex);
+            return;
+        }
         selectedRosterUnitName = unitName;
         const now = performance.now();
         if (lastTapUnitName === unitName && now - lastTapAt < 420) {
