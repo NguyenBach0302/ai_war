@@ -2458,6 +2458,14 @@ canvas {
   }
   .setup-box { width: 95%; padding: 20px; }
   .setup-title { font-size: 20px; }
+  .profile-panel {
+    width: calc(100vw - 8px);
+    max-width: calc(100vw - 8px) !important;
+    padding: 10px;
+  }
+  #profile-overlay {
+    padding: 4px;
+  }
 }
 
 @media (max-width: 700px) and (orientation: landscape) {

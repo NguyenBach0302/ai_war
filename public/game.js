@@ -204,6 +204,8 @@ const Profile = (function() {
     let draftLoadouts = null;
     let activeLoadoutSlotDraft = 1;
     let selectedPreviewUnitName = null;
+    let lastTapUnitName = null;
+    let lastTapAt = 0;
 
     function getOwnedUnits() {
         return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
@@ -467,7 +469,7 @@ const Profile = (function() {
                         ${ownedUnits.map(unit => {
                             const selected = current.unitNames.includes(unit.name);
                             return `
-                                <button type="button" class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                <button type="button" class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
                                 </button>
@@ -563,6 +565,15 @@ const Profile = (function() {
     }
 
     function previewUnit(unitName) {
+        const now = performance.now();
+        if (lastTapUnitName === unitName && now - lastTapAt < 420) {
+            lastTapUnitName = null;
+            lastTapAt = 0;
+            addUnit(unitName);
+            return;
+        }
+        lastTapUnitName = unitName;
+        lastTapAt = now;
         selectedPreviewUnitName = unitName;
         render();
     }
