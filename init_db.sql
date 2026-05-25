@@ -1,7 +1,16 @@
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------
+-- Database Setup
+-- ---------------------------------------------------------
 DROP DATABASE IF EXISTS ai_war;
-CREATE DATABASE ai_war;
+CREATE DATABASE ai_war CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE ai_war;
 
+-- ---------------------------------------------------------
+-- Table: users
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
@@ -11,8 +20,11 @@ CREATE TABLE IF NOT EXISTS users (
     losses INT DEFAULT 0,
     role INT DEFAULT 4, -- 0: Admin, 1-4: Other roles
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- Table: units
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS units (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(50) NOT NULL UNIQUE,
@@ -27,7 +39,7 @@ CREATE TABLE IF NOT EXISTS units (
     special TEXT,
     role VARCHAR(50),
     dmg_type VARCHAR(20) DEFAULT 'physical',
-    -- NEW ADVANCED STATS
+    -- ADVANCED STATS
     crit_chance FLOAT DEFAULT 0,
     armor INT DEFAULT 0,
     mres INT DEFAULT 0,
@@ -35,16 +47,22 @@ CREATE TABLE IF NOT EXISTS units (
     magic_pen FLOAT DEFAULT 0,
     dodge FLOAT DEFAULT 0.1,
     lifesteal FLOAT DEFAULT 0
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- Table: games
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS games (
     id INT AUTO_INCREMENT PRIMARY KEY,
     winner_id INT,
     duration INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (winner_id) REFERENCES users(id)
-);
+    FOREIGN KEY (winner_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- Table: game_sessions
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS game_sessions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -54,8 +72,11 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_game_sessions_user_active (user_id, is_active),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- Table: user_units
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_units (
     user_id INT NOT NULL,
     unit_id INT NOT NULL,
@@ -64,8 +85,11 @@ CREATE TABLE IF NOT EXISTS user_units (
     PRIMARY KEY (user_id, unit_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ---------------------------------------------------------
+-- Table: user_loadouts
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_loadouts (
     user_id INT NOT NULL,
     slot TINYINT NOT NULL,
@@ -75,10 +99,12 @@ CREATE TABLE IF NOT EXISTS user_loadouts (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, slot),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CHECK (slot BETWEEN 1 AND 3)
-);
+    CONSTRAINT chk_slot CHECK (slot BETWEEN 1 AND 3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Seed units table with data from the game
+-- ---------------------------------------------------------
+-- Seed Data: units
+-- ---------------------------------------------------------
 INSERT IGNORE INTO units (name, icon, hp, mana, move_speed, `range`, dmg, atk_speed, cost, special, role, dmg_type, crit_chance, armor, mres, phys_pen, magic_pen, dodge, lifesteal) VALUES
     ('Guard', '🛡️', 200, 100, 1.5, 25, 15, 0.8, 80, 'Block: Heal 20% HP and gain +50 armor/+50 magic armor for 8s', 'Tanker', 'physical', 0, 60, 30, 0, 0, 0.1, 0),
     ('Assassin', '🗡️', 80, 80, 1.9, 20, 35, 1.5, 60, 'Dash: Jump to farthest enemy, +50% Crit/Dodge/Lifesteal', 'Burst/Flank', 'physical', 0.25, 10, 10, 0, 0, 0.3, 0),
@@ -90,14 +116,4 @@ INSERT IGNORE INTO units (name, icon, hp, mana, move_speed, `range`, dmg, atk_sp
     ('ChilyGirl', '🌶️', 85, 100, 1.15, 25, 10, 2.5, 70, 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage', 'Melee Bruiser', 'physical', 0, 50, 50, 0, 0, 0.1, 0),
     ('Sniper', '🎯', 90, 100, 0.7, 300, 80, 0.5, 0, 'Long Range: High damage precision', 'Elite DPS', 'physical', 0.20, 10, 10, 0.30, 0, 0.1, 0);
 
-UPDATE units
-SET `range` = 25,
-    dmg = 10,
-    atk_speed = 2.5,
-    special = 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage',
-    role = 'Melee Bruiser',
-    dmg_type = 'physical',
-    armor = 50,
-    mres = 50,
-    magic_pen = 0
-WHERE name = 'ChilyGirl';
+SET FOREIGN_KEY_CHECKS = 1;
