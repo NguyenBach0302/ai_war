@@ -251,6 +251,41 @@ const Profile = (function() {
         if (status) status.textContent = message || '';
     }
 
+    function getIdleSrc(unitName) {
+        return Game.getClassIdleSrc(unitName);
+    }
+
+    function renderPreview(unit) {
+        if (!unit) {
+            return `
+                <div class="profile-preview-empty">
+                    <strong>Hover a class</strong>
+                    <span>Class stats and idle animation appear here.</span>
+                </div>
+            `;
+        }
+        return `
+            <div class="profile-preview-card">
+                <div class="profile-preview-stage">
+                    <img src="${getIdleSrc(unit.name)}" alt="${escapeHtml(unit.name)} idle">
+                </div>
+                <div class="profile-preview-info">
+                    <div class="profile-deck-kicker">${escapeHtml(unit.role || 'Unit')}</div>
+                    <h3>${escapeHtml(unit.name)}</h3>
+                    <p>${escapeHtml(unit.special || 'No special ability')}</p>
+                    <div class="profile-preview-stats">
+                        <div><span>HP</span><strong>${Number(unit.hp || 0)}</strong></div>
+                        <div><span>DMG</span><strong>${Number(unit.dmg || 0)}</strong></div>
+                        <div><span>RNG</span><strong>${Number(unit.range || 0)}</strong></div>
+                        <div><span>SPD</span><strong>${Number(unit.move_speed || 0)}</strong></div>
+                        <div><span>DEF</span><strong>${Number(unit.armor || 0)}/${Number(unit.mres || 0)}</strong></div>
+                        <div><span>Cost</span><strong>${Number(unit.cost || 0)}g</strong></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     function render() {
         const user = Auth.getUser();
         const summary = document.getElementById('profile-summary');
@@ -417,20 +452,21 @@ const Profile = (function() {
                         </div>
                         <span>${ownedUnits.length} units</span>
                     </div>
-                    <div class="profile-roster-grid">
-                        ${ownedUnits.map(unit => {
-                            const selected = current.unitNames.includes(unit.name);
-                            return `
-                                <div class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
-                                    <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
-                                    <span class="profile-unit-copy">
-                                        <span class="profile-unit-name">${escapeHtml(unit.name)}</span>
-                                        <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
-                                    </span>
-                                    <span class="profile-unit-cost">${Number(unit.cost || 0)}g</span>
-                                </div>
-                            `;
-                        }).join('')}
+                    <div class="profile-roster-layout">
+                        <div class="profile-roster-grid">
+                            ${ownedUnits.map(unit => {
+                                const selected = current.unitNames.includes(unit.name);
+                                return `
+                                    <div class="profile-roster-card ${selected ? 'selected' : ''}" tabindex="0" draggable="true" onmouseenter="Profile.previewUnit(${jsString(unit.name)})" onfocus="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                        <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
+                                        <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                        <div class="profile-preview" id="profile-unit-preview">
+                            ${renderPreview(ownedUnits[0])}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -517,6 +553,12 @@ const Profile = (function() {
         render();
     }
 
+    function previewUnit(unitName) {
+        const preview = document.getElementById('profile-unit-preview');
+        const unit = getOwnedUnitMap().get(unitName);
+        if (preview) preview.innerHTML = renderPreview(unit);
+    }
+
     async function save() {
         syncDeckName();
         const status = document.getElementById('profile-status');
@@ -555,7 +597,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit, previewUnit };
 })();
 
 const UI = (function() {
@@ -1039,6 +1081,11 @@ const Game = (function() {
 
     function getClassIconSrc(unitName) {
         return `/res/${getClassAssetKey(unitName)}/icon.png`;
+    }
+
+    function getClassIdleSrc(unitName) {
+        const file = unitName === 'ChilyGirl' ? 'idle.png' : 'Idle.png';
+        return `/res/${getClassAssetKey(unitName)}/${file}`;
     }
 
     function renderShopUnitButton(unitName) {
@@ -3882,7 +3929,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, getSelectedLoadoutSlot, getClassIconSrc, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, getSelectedLoadoutSlot, getClassAssetKey, getClassIconSrc, getClassIdleSrc, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
 })();
 
 window.UI = UI;
