@@ -1520,6 +1520,90 @@ canvas {
   }
 }
 
+@media (max-width: 950px) and (orientation: landscape), (pointer: coarse) and (max-height: 520px) {
+  #auth-overlay {
+    align-items: flex-start;
+    justify-content: center;
+    height: var(--app-height);
+    padding: max(8px, var(--safe-top)) max(10px, var(--safe-right)) max(8px, var(--safe-bottom)) max(10px, var(--safe-left));
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  #auth-overlay .auth-shell {
+    width: min(420px, calc(100vw - var(--safe-left) - var(--safe-right) - 20px));
+    margin: auto 0;
+  }
+
+  #auth-overlay .auth-card {
+    padding: clamp(16px, 4vh, 24px) clamp(20px, 4vw, 30px);
+  }
+
+  #auth-overlay .auth-logo {
+    gap: 10px;
+    justify-content: flex-start;
+    margin-bottom: 14px;
+  }
+
+  #auth-overlay .auth-mark {
+    width: 32px;
+    height: 32px;
+  }
+
+  #auth-overlay .auth-brand {
+    font-size: 18px;
+    letter-spacing: 0.08em;
+  }
+
+  #auth-overlay .auth-subtitle {
+    display: none;
+  }
+
+  #auth-overlay .auth-tabs {
+    margin-bottom: 12px;
+  }
+
+  #auth-overlay .auth-tab {
+    padding: 7px 10px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  #auth-overlay .auth-card-head {
+    margin-bottom: 10px;
+  }
+
+  #auth-overlay .auth-card .setup-title {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+  }
+
+  #auth-overlay .auth-input-group {
+    margin-bottom: 10px;
+  }
+
+  #auth-overlay .auth-input-group label {
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+
+  #auth-overlay .auth-input-group input {
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+
+  #auth-overlay .primary-action {
+    min-height: 38px;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  #auth-overlay .auth-footer {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+}
+
 @media (max-width: 950px), (pointer: coarse) and (max-height: 520px) {
   :root {
     --header-height: 38px;
