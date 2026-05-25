@@ -215,29 +215,73 @@ const Profile = (function() {
         if (!user || !container) return;
         const ownedUnits = getOwnedUnits().filter(unit => Number(unit.cost || 0) > 0);
         const loadouts = getLoadouts();
+        if (summary) {
+            summary.innerHTML = `
+                <div class="profile-identity">
+                    <div class="profile-avatar">${escapeHtml(String(user.username || 'A').slice(0, 2).toUpperCase())}</div>
+                    <div>
+                        <div class="profile-name">${escapeHtml(user.username)}</div>
+                        <div class="profile-caption">Battle Deck Commander</div>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div><strong>${Number(user.gold || 0)}</strong><span>Gold</span></div>
+                    <div><strong>${Number(user.wins || 0)} / ${Number(user.losses || 0)}</strong><span>W / L</span></div>
+                    <div><strong>${ownedUnits.length}</strong><span>Unlocked</span></div>
+                </div>
+            `;
+        }
         if (summary) summary.textContent = `${user.username} · ${user.gold} gold · ${ownedUnits.length} unlocked base units`;
+
+        if (summary) {
+            summary.innerHTML = `
+                <div class="profile-identity">
+                    <div class="profile-avatar">${escapeHtml(String(user.username || 'A').slice(0, 2).toUpperCase())}</div>
+                    <div>
+                        <div class="profile-name">${escapeHtml(user.username)}</div>
+                        <div class="profile-caption">Battle Deck Commander</div>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div><strong>${Number(user.gold || 0)}</strong><span>Gold</span></div>
+                    <div><strong>${Number(user.wins || 0)} / ${Number(user.losses || 0)}</strong><span>W / L</span></div>
+                    <div><strong>${ownedUnits.length}</strong><span>Unlocked</span></div>
+                </div>
+            `;
+        }
 
         container.innerHTML = [1, 2, 3].map(slot => {
             const loadout = loadouts.find(item => Number(item.slot) === slot) || { slot, name: `Loadout ${slot}`, unitNames: [] };
             const selected = new Set(Array.isArray(loadout.unitNames) ? loadout.unitNames : []);
+            const selectedCount = selected.size;
             return `
                 <div class="profile-loadout-card" data-loadout-slot="${slot}">
                     <div class="profile-loadout-head">
-                        <input id="loadout-name-${slot}" value="${escapeHtml(loadout.name || `Loadout ${slot}`)}" maxlength="50">
-                        <label class="profile-active">
+                        <div>
+                            <div class="profile-deck-kicker">Deck ${slot}</div>
+                            <input id="loadout-name-${slot}" value="${escapeHtml(loadout.name || `Loadout ${slot}`)}" maxlength="50">
+                        </div>
+                        <label class="profile-active ${user.activeLoadoutSlot === slot ? 'is-active' : ''}">
                             <input type="radio" name="active-loadout" value="${slot}" ${user.activeLoadoutSlot === slot ? 'checked' : ''}>
-                            Active
+                            Use
                         </label>
+                    </div>
+                    <div class="profile-deck-meter">
+                        <span>${selectedCount}/5 selected</span>
+                        <div><i style="width:${Math.min(100, selectedCount * 20)}%"></i></div>
                     </div>
                     <div class="profile-unit-list">
                         ${ownedUnits.map(unit => `
                             <label class="profile-unit-option">
                                 <input type="checkbox" data-loadout-unit="${slot}" value="${escapeHtml(unit.name)}" ${selected.has(unit.name) ? 'checked' : ''} onchange="Profile.enforceLimit(${slot}, this)">
-                                <span>
-                                    <span class="profile-unit-name">${escapeHtml(unit.icon)} ${escapeHtml(unit.name)}</span>
+                                <span class="profile-unit-art">
+                                    <img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}">
+                                </span>
+                                <span class="profile-unit-copy">
+                                    <span class="profile-unit-name">${escapeHtml(unit.name)}</span>
                                     <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
                                 </span>
-                                <span class="u-cost">${Number(unit.cost || 0)}g</span>
+                                <span class="profile-unit-cost">${Number(unit.cost || 0)}g</span>
                             </label>
                         `).join('')}
                     </div>
@@ -3629,7 +3673,7 @@ const Game = (function() {
         });
     }
 
-    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, getSelectedLoadoutSlot, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
+    return { init, buy: buyUnit, previewOnlineBuy, applyOnlineAction, applyAuthoritativeState, applyAuthoritativeEvents, applyServerVisual, syncOnlineClock, fetchUnits, checkActiveSession, togglePause, toggleFullscreen, resume, startFresh, updateSetupUI, getSelectedLoadoutSlot, getClassIconSrc, panCamera, focusCamera, zoomCamera, setCameraZoom, decodeBinaryMatchState };
 })();
 
 window.UI = UI;
