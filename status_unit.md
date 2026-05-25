@@ -26,13 +26,13 @@ Source of truth used here:
 
 | Unit | Role | Cost | HP | Mana | Move | Range | DMG | ATK SPD | Type | Core Special |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| Guard | Tanker | 80 | 200 | 100 | 1.5 | 25 | 15 | 0.8 | Physical | Protect/Statue form: gains survivability and extra HP |
+| Guard | Tanker | 80 | 200 | 100 | 1.5 | 25 | 15 | 0.8 | Physical | Heals 20% HP and gains +50 armor/+50 magic armor |
 | Assassin | Burst/Flank | 60 | 80 | 80 | 1.9 | 20 | 35 | 1.5 | Physical | Dash to farthest enemy, then gain crit/dodge/lifesteal buffs |
 | Mage | Artillery | 75 | 70 | 120 | 1.2 | 140 | 60 | 1.0 | Magic | Fire burst/AoE true damage with mana refund on kill |
-| Healer | Support | 50 | 90 | 120 | 1.1 | 120 | 5 | 1.0 | Physical | Prioritizes healing low-HP allies |
-| Bowman | Debuffer | 45 | 100 | 40 | 1.2 | 160 | 12 | 1.7 | Physical | Focus buff for physical penetration |
-| Gunman | DPS | 90 | 110 | 60 | 0.9 | 160 | 45 | 0.8 | Physical | Grenade AoE within 2x attack range |
-| Iceman | Control Mage | 60 | 100 | 90 | 1.2 | 130 | 12 | 1.1 | Magic | Freeze nearest 3 enemies and deal true damage |
+| Healer | Support | 50 | 90 | 120 | 1.1 | 120 | 5 | 1.0 | Physical | Heals 3 nearest allies within 200px for 20 HP each |
+| Bowman | Debuffer | 45 | 100 | 40 | 1.2 | 160 | 12 | 1.7 | Physical | 50% attack speed boost for 3s |
+| Gunman | DPS | 90 | 110 | 60 | 0.9 | 160 | 45 | 0.8 | Physical | +100 range boost for 3s |
+| Iceman | Control Mage | 60 | 100 | 90 | 1.2 | 130 | 12 | 1.1 | Magic | Freeze 3 nearest enemies within 200px for 2s |
 | ChilyGirl | Melee Bruiser | 70 | 85 | 100 | 1.15 | 25 | 10 | 2.5 | Physical | Immortal burst window, protection trigger, then 10x punch |
 | Sniper | Elite DPS | 0 | 90 | 100 | 0.7 | 300 | 80 | 0.5 | Physical | Extreme range precision damage |
 
@@ -116,22 +116,22 @@ Recent server events are included in `match-state.events[]`. Damage events conta
 | `targetX`, `targetY` | Target position at hit time |
 
 ### Server-side skills actually implemented
-- Guard: at 80 mana, heals for 35% max HP and can exceed current max up to `1.4x`.
+- Guard: at 80 mana, heals for 20% max HP and gains `+50 armor` and `+50 mres` for `8s`.
 - Assassin: at 80 mana, dashes to a far enemy and gains temporary dodge/lifesteal buffs.
 - Mage: at 80 mana, launches AoE magic damage (`55`) in radius `70`.
-- Healer: at 80 mana, heals an ally for `max(35, dmg * 8)`.
-- Bowman: at 40 mana, gains temporary `+0.15 phys_pen`.
-- Gunman/Gunner: at 60 mana, throws grenade for `1.8x dmg` AoE physical damage.
-- Iceman: at 60 mana, freezes 3 nearest enemies and deals `20 true damage`.
+- Healer: at 50% mana, heals 3 nearest damaged allies within `200px` for `20 HP` each.
+- Bowman: at 65% mana, gains `+50% attack speed` for `3s`.
+- Gunman/Gunner: at 65% mana, gains `+100 range` for `3s`.
+- Iceman: at 60% mana, freezes 3 nearest enemies within `200px` for `2s`; frozen units cannot attack or move.
 - ChilyGirl: at 70 mana, throws a big chili for `3x dmg` true AoE damage.
 
 ### Client/local skills actually implemented
-- Guard: statue mode for `480` frames with `+50% max HP`, `+50 armor`, `+50 mres`.
+- Guard: protect mode for `480` frames with `+50 armor`, `+50 mres`, and a `20%` max HP heal.
 - Assassin: dash grants `+0.5 crit`, `+0.5 dodge`, `+0.5 lifesteal` for `180` frames.
 - Mage: if fighting in close range, deals `60 true damage` AoE and refunds mana on kill.
-- Healer: uses a healing projectile on low-HP allies when in range.
-- Bowman: basic special is treated as a fast ranged DPS/pen unit; no unique heavy active beyond pen boost logic.
-- Gunman/Gunner: grenade projectile with AoE explosion.
+- Healer: active skill heals up to 3 nearby damaged allies for `20 HP` each.
+- Bowman: active skill grants `atk_speed x1.5` for `3s`.
+- Gunman/Gunner: active skill grants `+100 range` for `3s`.
 - Iceman: active freeze plus a passive freeze trigger when low HP.
 - ChilyGirl: active grants `invulnerable + atk_speed x2 + bonus true damage`; low-HP passive triggers protection and then a forward punch for `10x dmg`.
 

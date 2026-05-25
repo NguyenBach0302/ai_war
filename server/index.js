@@ -35,7 +35,7 @@ const ICEMAN_UNIT = {
     dmg: 12,
     atk_speed: 1.1,
     cost: 60,
-    special: 'Summon Frost: Freeze 3 nearest enemies and deal 20 true damage; passive freezes adjacent units below 50% HP',
+    special: 'Summon Frost: Costs 60% mana to freeze 3 nearest enemies within 200px for 2s; frozen units cannot attack or move',
     role: 'Control Mage',
     dmg_type: 'magic',
     crit_chance: 0,

@@ -623,7 +623,10 @@ const Game = (function() {
         4: 'phys_pen',
         5: 'invulnerable',
         6: 'atk_speed_mult',
-        7: 'no_mana_regen'
+        7: 'no_mana_regen',
+        8: 'armor',
+        9: 'mres',
+        10: 'range'
     };
     const WIRE_ANIM_TO_NAME = {
         0: 'idle',
@@ -864,7 +867,8 @@ const Game = (function() {
         return fxRngState / 0x100000000;
     };
     const serverNowMs = () => Date.now() + onlineServerClockOffsetMs;
-    const isMeleeUnit = (u) => (u.meta?.range || 0) < 35;
+    const getEffectiveRange = (u) => (u.meta?.range || 0) + (u.buffs?.find(b => b.type === 'range')?.value || 0);
+    const isMeleeUnit = (u) => getEffectiveRange(u) < 35;
     const targetPressure = (target, owner) => {
         if (target.base) return 0;
         const targetKey = getTargetKey(target);
@@ -1265,11 +1269,11 @@ const Game = (function() {
         }
 
         if (type === 'physical') {
-            let armor = target.meta.armor || 0;
+            let armor = (target.meta.armor || 0) + (target.buffs?.find(b => b.type === 'armor')?.value || 0);
             armor *= (1 - (attacker.meta.phys_pen + (attacker.buffs?.find(b => b.type === 'phys_pen')?.value || 0)));
             finalDmg *= (1 - getReduction(armor));
         } else if (type === 'magic') {
-            let mres = target.meta.mres || 0;
+            let mres = (target.meta.mres || 0) + (target.buffs?.find(b => b.type === 'mres')?.value || 0);
             mres *= (1 - (attacker.meta.magic_pen + (attacker.buffs?.find(b => b.type === 'magic_pen')?.value || 0)));
             finalDmg *= (1 - getReduction(mres));
         }
@@ -1279,7 +1283,7 @@ const Game = (function() {
         return { amount, isCrit, dodged: false };
     }
 
-    function freezeUnit(target, duration = 180) {
+    function freezeUnit(target, duration = 120) {
         const existing = target.buffs?.find(b => b.type === 'frozen');
         if (existing) existing.duration = Math.max(existing.duration, duration);
         else target.buffs.push({ type: 'frozen', duration });
@@ -1290,27 +1294,79 @@ const Game = (function() {
     }
 
     function castIcemanSkill(u) {
+        const skillCost = Math.max(0, u.maxMana * 0.6);
         const targets = units
-            .filter(en => en.owner !== u.owner && en.untargetableTimer <= 0)
+            .filter(en => en.owner !== u.owner && en.untargetableTimer <= 0 && dist(u, en) <= 200)
             .map(en => ({ unit: en, distance: dist(u, en) }))
             .sort((a, b) => a.distance - b.distance)
             .slice(0, 3)
             .map(entry => entry.unit);
 
         if (targets.length === 0) return false;
-        u.mana -= 60;
+        u.mana -= skillCost;
         startUnitAction(u, 'charge_2');
         targets.forEach(en => {
             freezeUnit(en);
-            const dmgRes = calculateDamage(u, en, 20, 'true');
-            en.hp -= dmgRes.amount;
-            en.lastAttacker = u.owner;
             spawnImpact(en.x, en.y, '#67e8f9', 28);
             addParticle(en.x, en.y, '#bae6fd', 14, 2.4);
-            spawnVFX(en.x, en.y, `ICE ${Math.floor(dmgRes.amount)}`, '#7dd3fc');
+            spawnVFX(en.x, en.y, 'FROZEN', '#7dd3fc');
         });
         spawnImpact(u.x, u.y, '#38bdf8', 36);
         spawnVFX(u.x, u.y - 20, 'FROST!', '#7dd3fc');
+        return true;
+    }
+
+    function castHealerSkill(u) {
+        const skillCost = Math.max(0, u.maxMana * 0.5);
+        const targets = units
+            .filter(ally => ally.owner === u.owner && ally.id !== u.id && ally.hp > 0 && ally.hp < getEffectiveMaxHp(ally) && dist(u, ally) <= 200)
+            .map(ally => ({ unit: ally, distance: dist(u, ally) }))
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, 3)
+            .map(entry => entry.unit);
+
+        if (targets.length === 0) return false;
+        u.mana -= skillCost;
+        startUnitAction(u, 'attack_3');
+        targets.forEach(ally => {
+            ally.hp = Math.min(getEffectiveMaxHp(ally), ally.hp + 20);
+            projectiles.push({ x: u.x, y: u.y - 12, tx: ally.x, ty: ally.y - 10, owner: u.owner, targetId: ally.id, dmg: 20, speed: 7, color: '#22c55e', heal: true, sprite: 'healer_fire_2', visualOnly: true, life: 90 });
+            spawnVFX(ally.x, ally.y - 18, '+20', '#22c55e');
+        });
+        spawnImpact(u.x, u.y, '#22c55e', 30);
+        return true;
+    }
+
+    function castGuardSkill(u) {
+        u.mana -= 80;
+        u.buffs = u.buffs.filter(b => !['armor', 'mres'].includes(b.type));
+        u.buffs.push(
+            { type: 'armor', value: 50, duration: 480 },
+            { type: 'mres', value: 50, duration: 480 }
+        );
+        u.hp = Math.min(getEffectiveMaxHp(u), u.hp + u.maxHp * 0.2);
+        startUnitAction(u, 'protect');
+        spawnVFX(u.x, u.y, 'PROTECT!', '#94a3b8');
+        return true;
+    }
+
+    function castBowmanSkill(u) {
+        const skillCost = Math.max(0, u.maxMana * 0.65);
+        u.mana -= skillCost;
+        u.buffs = u.buffs.filter(b => b.type !== 'atk_speed_mult');
+        u.buffs.push({ type: 'atk_speed_mult', value: 1.5, duration: 180 });
+        startUnitAction(u, 'attack_3');
+        spawnVFX(u.x, u.y - 20, 'HASTE!', '#fbbf24');
+        return true;
+    }
+
+    function castGunnerSkill(u) {
+        const skillCost = Math.max(0, u.maxMana * 0.65);
+        u.mana -= skillCost;
+        u.buffs = u.buffs.filter(b => b.type !== 'range');
+        u.buffs.push({ type: 'range', value: 100, duration: 180 });
+        startUnitAction(u, 'attack');
+        spawnVFX(u.x, u.y - 20, 'RANGE!', '#f97316');
         return true;
     }
 
@@ -1513,7 +1569,7 @@ const Game = (function() {
                 lifesteal: Number(u.lifesteal || 0),
                 meta: u,
                 skill: u.special?.split(':')[0]?.toLowerCase() || 'none',
-                skillCost: u.name === 'Iceman' ? 60 : 30,
+                skillCost: u.name === 'Iceman' ? u.mana * 0.6 : u.name === 'Healer' ? u.mana * 0.5 : (u.name === 'Bowman' || u.name === 'Gunman' || u.name === 'Gunner') ? u.mana * 0.65 : 30,
                 skillRange: u.range * 2
             };
         });
@@ -2181,7 +2237,6 @@ const Game = (function() {
             if (frameCount % 60 === 0) { u.hp = Math.min(effectiveMaxHp, u.hp + 1); if (canRegen) u.mana = Math.min(u.maxMana, u.mana + 5); }
             u.buffs = u.buffs.filter(b => {
                 b.duration--;
-                if (b.type === 'statue') { u.x = b.origX; u.y = b.origY; }
                 if (b.type === 'chily_protection' && b.duration <= 0) triggerChilyGirlPunch(u);
                 return b.duration > 0;
             });
@@ -2197,14 +2252,20 @@ const Game = (function() {
                 u.currentTargetKey = null;
                 return;
             }
-            if (u.type === 'Iceman' && u.mana >= 60 && !u.isPet) {
+            if (u.type === 'Iceman' && u.mana >= u.maxMana * 0.6 && !u.isPet) {
                 castIcemanSkill(u);
+            } else if (u.type === 'Healer' && u.mana >= u.maxMana * 0.5 && !u.isPet) {
+                castHealerSkill(u);
+            } else if (u.type === 'Guard' && u.mana >= 80 && !u.isPet) {
+                castGuardSkill(u);
+            } else if (u.type === 'Bowman' && u.mana >= u.maxMana * 0.65 && !u.isPet) {
+                castBowmanSkill(u);
+            } else if ((u.type.toLowerCase().includes('gunman') || u.type.toLowerCase().includes('gunner')) && u.mana >= u.maxMana * 0.65 && !u.isPet) {
+                castGunnerSkill(u);
             } else if (u.type === 'ChilyGirl' && u.mana >= 70 && !u.isPet) {
                 castChilyGirlSkill(u);
             } else if (u.mana >= 30 && !u.isPet) {
                 if (u.type === 'Assassin') { let farthest = null, maxD = 0; const avoidGuard = u.hp / getEffectiveMaxHp(u) > 0.5; units.forEach(en => { if(en.owner !== u.owner && en.untargetableTimer <= 0 && dist(u, en) < 300 && !(avoidGuard && en.type === 'Guard')) { if(dist(u, en) > maxD) { maxD = dist(u, en); farthest = en; } } }); if (farthest) { const fromX = u.x, fromY = u.y; const dashFacing = facingFromVector(farthest.x - fromX, farthest.y - fromY, u.facing); const side = dashFacing === 'left' ? 1 : -1; u.mana = 0; u.x = farthest.x + side * (u.radius + farthest.radius + 2); u.y = farthest.y; u.currentTargetKey = getTargetKey(farthest); u.nextAttack3 = true; u.state = 'fight'; u.facing = dashFacing; u.buffs.push({ type: 'crit_chance', value: 0.5, duration: 180 }, { type: 'dodge', value: 0.5, duration: 180 }, { type: 'lifesteal', value: 0.5, duration: 180 }); spawnVFX(u.x, u.y, 'DASH!', '#f43f5e'); } }
-                else if (u.type.toLowerCase().includes('gunman') || u.type.toLowerCase().includes('gunner')) { let bombTarget = null, minBombDist = Infinity; const skillRange = u.meta.range * 2; units.forEach(en => { if (en.owner !== u.owner && en.untargetableTimer <= 0) { const d = dist(u, en); if (d <= skillRange && d < minBombDist) { minBombDist = d; bombTarget = en; } } }); players.forEach(p => { if (!p.eliminated && p.id !== u.owner) { const d = dist(u, p.base) - p.base.r; if (d <= skillRange && d < minBombDist) { minBombDist = d; bombTarget = p; } } }); if (bombTarget) { const tx = bombTarget.base ? bombTarget.base.x : bombTarget.x, ty = bombTarget.base ? bombTarget.base.y : bombTarget.y; u.mana = 0; startUnitAction(u, 'attack'); u.facing = facingFromVector(tx - u.x, ty - u.y, u.facing); projectiles.push({ x: u.x, y: u.y - 18, tx, ty, owner: u.owner, dmg: u.meta.dmg, speed: 6, color: players[u.owner].color.main, dmgType: 'physical', attackerMeta: u.meta, attackerBuffs: [...u.buffs], attackerId: u.id, sprite: 'grenade', explosionRadius: 20 }); spawnVFX(u.x, u.y - 22, 'BOMB!', '#f97316'); } }
-                else if (u.state === 'fight' && u.type === 'Guard') { u.mana = 0; startUnitAction(u, 'protect'); u.buffs.push({ type: 'statue', duration: 480, origX: u.x, origY: u.y }, { type: 'max_hp_mult', value: 1.5, duration: 480 }, { type: 'armor', value: 50, duration: 480 }, { type: 'mres', value: 50, duration: 480 }, { type: 'no_mana_regen', duration: 480 }); u.hp = Math.min(getEffectiveMaxHp(u), u.hp + u.maxHp * 0.5); spawnVFX(u.x, u.y, 'PROTECT!', '#94a3b8'); }
                 else if (u.state === 'fight' && u.type === 'Mage') { let targets = units.filter(en => en.owner !== u.owner && dist(u, en) < 35); if (targets.length > 0) { u.mana = 0; targets.forEach(en => { const dmgRes = calculateDamage(u, en, 60, 'true'); en.hp -= dmgRes.amount; en.lastAttacker = u.owner; if (en.hp <= 0) u.mana = Math.min(u.maxMana, u.mana + 5); spawnVFX(en.x, en.y, Math.floor(dmgRes.amount), '#f97316'); }); spawnVFX(u.x, u.y, 'FIRE!', '#f97316'); } }
             }
             if (u.type === 'Healer') {
@@ -2216,14 +2277,8 @@ const Game = (function() {
                     }
                 });
                 if (healTarget) {
-                    const inHealRange = healDist <= u.meta.range;
-                    if (inHealRange && u.mana >= 30 && u.cooldown <= 0) {
-                        u.mana = 0;
-                        u.cooldown = Math.floor(60 / Math.max(0.1, u.meta.atk_speed));
-                        startUnitAction(u, 'attack_3');
-                        u.facing = facingFromVector(healTarget.x - u.x, healTarget.y - u.y, u.facing);
-                        projectiles.push({ x: u.x, y: u.y - 12, tx: healTarget.x, ty: healTarget.y - 10, owner: u.owner, targetId: healTarget.id, dmg: u.meta.dmg, speed: 7, color: '#22c55e', heal: true, sprite: 'healer_fire_2' });
-                    } else if (!inHealRange) {
+                    const inHealRange = healDist <= 200;
+                    if (!inHealRange) {
                         const dir = Math.sign(healTarget.x - u.x) || getForwardDir(u.owner);
                         u.x += dir * u.meta.move_speed * 2;
                         u.y += ((healTarget.laneY || healTarget.y || LANE_Y) - u.y) * 0.08;
@@ -2239,7 +2294,8 @@ const Game = (function() {
                 u.currentTargetKey = getTargetKey(target);
                 const tx = getTargetX(target), ty = getTargetY(target), tr = getTargetRadius(target);
                 const d = dist(u, { x: tx, y: ty }) - tr;
-                if (d <= u.meta.range) {
+                const effectiveRange = getEffectiveRange(u);
+                if (d <= effectiveRange) {
                     if (u.cooldown <= 0) {
                         let fAtkSpd = u.meta.atk_speed; u.buffs.forEach(b => { if(b.type === 'atk_speed_mult') fAtkSpd *= b.value; });
                         u.cooldown = Math.floor(60 / fAtkSpd);
@@ -2252,7 +2308,7 @@ const Game = (function() {
                         const isHealer = u.type.toLowerCase().includes('healer');
                         const isIceman = u.type.toLowerCase().includes('iceman');
                         const isChilyGirl = u.type.toLowerCase().includes('chilygirl');
-                        const isMeleeStrike = u.meta.range < 35 || (isBowman && d <= 35);
+                        const isMeleeStrike = effectiveRange < 35 || (isBowman && d <= 35);
                         if (isMeleeStrike) {
                             if (isBowman) {
                                 const attackIdx = ((u.attackVariant || 0) % 3) + 1;
@@ -2687,7 +2743,7 @@ const Game = (function() {
 
     function drawGuardSprite(u) {
         const sheets = SPRITES.guard;
-        const isProtecting = u.buffs.some(b => b.type === 'statue');
+        const isProtecting = u.buffs.some(b => b.type === 'armor' || b.type === 'mres');
         let action = isProtecting ? 'protect' : u.animAction;
         const elapsed = frameCount - (u.animStartedAt || 0);
         const actionSheet = sheets[action];

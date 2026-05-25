@@ -57,7 +57,10 @@ class MatchService {
         phys_pen: 4,
         invulnerable: 5,
         atk_speed_mult: 6,
-        no_mana_regen: 7
+        no_mana_regen: 7,
+        armor: 8,
+        mres: 9,
+        range: 10
     };
     ANIM_ACTION_CODES = {
         idle: 0,
@@ -328,10 +331,12 @@ class MatchService {
                 break;
         }
     }
-    getServerDamage(attacker, target, baseDmg, type) {
+    getServerDamage(sim, attacker, target, baseDmg, type) {
         if (type === 'true' || !target.meta)
             return baseDmg;
-        const armorValue = type === 'magic' ? Number(target.meta.mres || 0) : Number(target.meta.armor || 0);
+        const armorBoost = target.guardArmorBoostUntil && target.guardArmorBoostUntil > sim.frame ? 50 : 0;
+        const mresBoost = target.guardMresBoostUntil && target.guardMresBoostUntil > sim.frame ? 50 : 0;
+        const armorValue = type === 'magic' ? Number(target.meta.mres || 0) + mresBoost : Number(target.meta.armor || 0) + armorBoost;
         const pen = type === 'magic' ? Number(attacker.meta.magic_pen || 0) : Number(attacker.meta.phys_pen || 0);
         const effective = Math.max(0, armorValue * (1 - pen));
         const reduction = effective <= 50
@@ -351,14 +356,14 @@ class MatchService {
         const attackerMeta = {
             ...(attacker.meta || {}),
             crit_chance: Number(attacker.meta?.crit_chance || 0) + (attacker.critBoostUntil && attacker.critBoostUntil > sim.frame ? 0.5 : 0),
-            phys_pen: Number(attacker.meta?.phys_pen || 0) + (attacker.penBoostUntil && attacker.penBoostUntil > sim.frame ? 0.15 : 0)
+            phys_pen: Number(attacker.meta?.phys_pen || 0)
         };
         const effectiveAttacker = { ...attacker, meta: attackerMeta };
         const critChance = Number(attackerMeta.crit_chance || 0);
         const isCrit = critChance > 0 && this.serverRng(sim) < critChance;
         if (isCrit)
             amount *= 2;
-        amount = this.getServerDamage(effectiveAttacker, target, amount, type);
+        amount = this.getServerDamage(sim, effectiveAttacker, target, amount, type);
         return { amount, dodged: false, isCrit };
     }
     pushServerEvent(match, event) {
@@ -513,10 +518,13 @@ class MatchService {
             ...(unit.dodgeBoostUntil && unit.dodgeBoostUntil > sim.frame ? [{ type: 'dodge', value: 0.5, duration: unit.dodgeBoostUntil - sim.frame }] : []),
             ...(unit.lifestealBoostUntil && unit.lifestealBoostUntil > sim.frame ? [{ type: 'lifesteal', value: 0.5, duration: unit.lifestealBoostUntil - sim.frame }] : []),
             ...(unit.critBoostUntil && unit.critBoostUntil > sim.frame ? [{ type: 'crit_chance', value: 0.5, duration: unit.critBoostUntil - sim.frame }] : []),
-            ...(unit.penBoostUntil && unit.penBoostUntil > sim.frame ? [{ type: 'phys_pen', value: 0.15, duration: unit.penBoostUntil - sim.frame }] : []),
             ...(unit.chilyShieldUntil && unit.chilyShieldUntil > sim.frame ? [{ type: 'invulnerable', value: 0, duration: unit.chilyShieldUntil - sim.frame }] : []),
             ...(unit.chilyAttackSpeedUntil && unit.chilyAttackSpeedUntil > sim.frame ? [{ type: 'atk_speed_mult', value: 3, duration: unit.chilyAttackSpeedUntil - sim.frame }] : []),
-            ...(unit.chilyNoManaRegenUntil && unit.chilyNoManaRegenUntil > sim.frame ? [{ type: 'no_mana_regen', value: 0, duration: unit.chilyNoManaRegenUntil - sim.frame }] : [])
+            ...(unit.bowmanAttackSpeedUntil && unit.bowmanAttackSpeedUntil > sim.frame ? [{ type: 'atk_speed_mult', value: 1.5, duration: unit.bowmanAttackSpeedUntil - sim.frame }] : []),
+            ...(unit.chilyNoManaRegenUntil && unit.chilyNoManaRegenUntil > sim.frame ? [{ type: 'no_mana_regen', value: 0, duration: unit.chilyNoManaRegenUntil - sim.frame }] : []),
+            ...(unit.guardArmorBoostUntil && unit.guardArmorBoostUntil > sim.frame ? [{ type: 'armor', value: 50, duration: unit.guardArmorBoostUntil - sim.frame }] : []),
+            ...(unit.guardMresBoostUntil && unit.guardMresBoostUntil > sim.frame ? [{ type: 'mres', value: 50, duration: unit.guardMresBoostUntil - sim.frame }] : []),
+            ...(unit.gunnerRangeBoostUntil && unit.gunnerRangeBoostUntil > sim.frame ? [{ type: 'range', value: 100, duration: unit.gunnerRangeBoostUntil - sim.frame }] : [])
         ].map(buff => this.encodeWireBuff(buff));
         return {
             i: unit.id,
@@ -956,27 +964,28 @@ class MatchService {
         if (unit.skillCooldown > 0 || unit.maxMana <= 0)
             return false;
         const lower = String(unit.type || '').toLowerCase();
-        if (lower.includes('iceman') && unit.mana >= 60) {
-            unit.mana -= 60;
+        const icemanSkillCost = Math.max(0, Number(unit.maxMana || 0) * 0.6);
+        if (lower.includes('iceman') && unit.mana >= icemanSkillCost) {
+            unit.mana -= icemanSkillCost;
             unit.skillCooldown = 120;
             this.setServerAnim(unit, 'charge_2', sim.frame);
-            const targets = this.queryServerSpatialUnits(sim, unit.x, unit.y, 320, (other) => other.owner !== unit.owner && other.hp > 0)
+            const targets = this.queryServerSpatialUnits(sim, unit.x, unit.y, 200, (other) => other.owner !== unit.owner && other.hp > 0)
                 .map((other) => ({ unit: other, distance: this.serverDist(unit, other) }));
             targets.sort((a, b) => a.distance - b.distance);
             const selectedTargets = targets.slice(0, 3).map(entry => entry.unit);
             selectedTargets.forEach((enemy) => {
                 enemy.frozenUntil = Math.max(enemy.frozenUntil || 0, sim.frame + 120);
-                this.applyServerDamage(match, unit, enemy, 20, 'true', 'frost');
                 this.addServerVfxVisual(match, enemy.x, enemy.y - 20, 'FROST', '#7dd3fc');
             });
             return true;
         }
-        if ((lower.includes('gunman') || lower.includes('gunner')) && unit.mana >= 60 && target) {
-            unit.mana -= 60;
-            unit.skillCooldown = 240;
+        const ownerSkillCost = Math.max(0, Number(unit.maxMana || 0) * 0.65);
+        if ((lower.includes('gunman') || lower.includes('gunner')) && unit.mana >= ownerSkillCost) {
+            unit.mana -= ownerSkillCost;
+            unit.skillCooldown = 180;
+            unit.gunnerRangeBoostUntil = sim.frame + 180;
             this.setServerAnim(unit, 'attack', sim.frame);
-            this.addServerProjectileVisual(match, unit, target, 'grenade');
-            this.applyServerAreaDamage(match, unit, this.getServerTargetPoint(target), 48, Number(unit.meta.dmg || 1) * 1.8, 'physical', 'grenade');
+            this.addServerVfxVisual(match, unit.x, unit.y - 20, 'RANGE', '#f97316');
             return true;
         }
         if (lower.includes('mage') && unit.mana >= 80 && target) {
@@ -991,7 +1000,9 @@ class MatchService {
         if (lower.includes('guard') && unit.mana >= 80) {
             unit.mana -= 80;
             unit.skillCooldown = 420;
-            unit.hp = Math.min(unit.maxHp * 1.4, unit.hp + unit.maxHp * 0.35);
+            unit.hp = Math.min(unit.maxHp, unit.hp + unit.maxHp * 0.2);
+            unit.guardArmorBoostUntil = sim.frame + 480;
+            unit.guardMresBoostUntil = sim.frame + 480;
             this.setServerAnim(unit, 'protect', sim.frame);
             this.addServerVfxVisual(match, unit.x, unit.y - 24, 'PROTECT', '#94a3b8');
             return true;
@@ -1030,36 +1041,30 @@ class MatchService {
             this.addServerVfxVisual(match, unit.x, unit.y - 20, 'DASH', '#f43f5e');
             return true;
         }
-        if (lower.includes('healer') && unit.mana >= 80) {
-            const allyPool = sim.spatialIndex?.byOwner?.[unit.owner] || sim.units;
-            let ally = null;
-            let lowestHpRatio = Infinity;
-            allyPool.forEach((other) => {
-                if (other.id === unit.id || other.hp >= other.maxHp)
-                    return;
-                const hpRatio = other.hp / Math.max(1, other.maxHp);
-                if (hpRatio < lowestHpRatio) {
-                    lowestHpRatio = hpRatio;
-                    ally = other;
-                }
-            });
-            if (!ally)
+        const healerSkillCost = Math.max(0, Number(unit.maxMana || 0) * 0.5);
+        if (lower.includes('healer') && unit.mana >= healerSkillCost) {
+            const allies = this.queryServerSpatialUnits(sim, unit.x, unit.y, 200, (other) => other.owner === unit.owner && other.id !== unit.id && other.hp > 0 && other.hp < other.maxHp)
+                .map((other) => ({ unit: other, distance: this.serverDist(unit, other) }));
+            allies.sort((a, b) => a.distance - b.distance);
+            const selectedAllies = allies.slice(0, 3).map(entry => entry.unit);
+            if (!selectedAllies.length)
                 return false;
-            unit.mana -= 80;
+            unit.mana -= healerSkillCost;
             unit.skillCooldown = 240;
             this.setServerAnim(unit, 'attack_3', sim.frame);
-            this.addServerProjectileVisual(match, unit, ally, 'heal');
-            const amount = Math.max(35, Number(unit.meta.dmg || 1) * 8);
-            ally.hp = Math.min(ally.maxHp, ally.hp + amount);
-            this.addServerVfxVisual(match, ally.x, ally.y - 18, `+${Math.floor(amount)}`, '#22c55e');
+            selectedAllies.forEach((ally) => {
+                ally.hp = Math.min(ally.maxHp, ally.hp + 20);
+                this.addServerProjectileVisual(match, unit, ally, 'heal');
+                this.addServerVfxVisual(match, ally.x, ally.y - 18, '+20', '#22c55e');
+            });
             return true;
         }
-        if (lower.includes('bowman') && unit.mana >= 40) {
-            unit.mana -= 40;
-            unit.skillCooldown = 300;
-            unit.penBoostUntil = sim.frame + 180;
+        if (lower.includes('bowman') && unit.mana >= ownerSkillCost) {
+            unit.mana -= ownerSkillCost;
+            unit.skillCooldown = 180;
+            unit.bowmanAttackSpeedUntil = sim.frame + 180;
             this.setServerAnim(unit, 'attack_3', sim.frame);
-            this.addServerVfxVisual(match, unit.x, unit.y - 20, 'FOCUS', '#fbbf24');
+            this.addServerVfxVisual(match, unit.x, unit.y - 20, 'HASTE', '#fbbf24');
             return true;
         }
         return false;
@@ -1108,19 +1113,23 @@ class MatchService {
                 return;
             }
             const targetPoint = this.getServerTargetPoint(target);
-            const range = Number(unit.meta.range || 25);
+            const range = Number(unit.meta.range || 25) + (unit.gunnerRangeBoostUntil && unit.gunnerRangeBoostUntil > sim.frame ? 100 : 0);
             const distance = this.getServerSurfaceDistance(unit, target);
             const dir = Math.sign(targetPoint.x - unit.x) || this.getServerForwardDir(unit.owner);
             unit.facing = dir > 0 ? 'right' : 'left';
             unit.currentTarget = this.snapshotServerTarget(target);
             unit.targetDistance = distance;
+            const lowerType = String(unit.type || '').toLowerCase();
+            if (distance > range && (lowerType.includes('gunman') || lowerType.includes('gunner')) && distance <= range + 100 && this.tryServerSkill(match, unit, target))
+                return;
             if (distance <= range) {
                 unit.state = 'fight';
                 unit.behavior = 'engaging';
                 if (this.tryServerSkill(match, unit, target))
                     return;
                 if (unit.cooldown <= 0) {
-                    const atkSpeedMult = unit.chilyAttackSpeedUntil && unit.chilyAttackSpeedUntil > sim.frame ? 3 : 1;
+                    const atkSpeedMult = (unit.chilyAttackSpeedUntil && unit.chilyAttackSpeedUntil > sim.frame ? 3 : 1)
+                        * (unit.bowmanAttackSpeedUntil && unit.bowmanAttackSpeedUntil > sim.frame ? 1.5 : 1);
                     const atkSpeed = Math.max(0.1, Number(unit.meta.atk_speed || 1) * atkSpeedMult);
                     unit.cooldown = Math.max(1, Math.floor(this.MATCH_FPS / atkSpeed));
                     unit.behavior = 'attacking';

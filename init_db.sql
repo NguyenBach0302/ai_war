@@ -58,13 +58,13 @@ CREATE TABLE IF NOT EXISTS game_sessions (
 
 -- Seed units table with data from the game
 INSERT IGNORE INTO units (name, icon, hp, mana, move_speed, `range`, dmg, atk_speed, cost, special, role, dmg_type, crit_chance, armor, mres, phys_pen, magic_pen, dodge, lifesteal) VALUES
-    ('Guard', '🛡️', 200, 100, 1.5, 25, 15, 0.8, 80, 'Block: Statue form, +50% HP, +50 Arm/MRes for 8s', 'Tanker', 'physical', 0, 60, 30, 0, 0, 0.1, 0),
+    ('Guard', '🛡️', 200, 100, 1.5, 25, 15, 0.8, 80, 'Block: Heal 20% HP and gain +50 armor/+50 magic armor for 8s', 'Tanker', 'physical', 0, 60, 30, 0, 0, 0.1, 0),
     ('Assassin', '🗡️', 80, 80, 1.9, 20, 35, 1.5, 60, 'Dash: Jump to farthest enemy, +50% Crit/Dodge/Lifesteal', 'Burst/Flank', 'physical', 0.25, 10, 10, 0, 0, 0.3, 0),
     ('Mage', '🔮', 70, 120, 1.2, 140, 60, 1, 75, 'Fire: AoE True damage, mana refund on kill', 'Artillery', 'magic', 0, 10, 10, 0, 0.10, 0.1, 0),
-    ('Healer', '✨', 90, 120, 1.1, 120, 5, 1, 50, 'High Heal: Strong heal for Guard/Low HP allies', 'Support', 'physical', 0, 10, 10, 0, 0, 0.1, 0),
-    ('Bowman', '🏹', 100, 40, 1.2, 160, 12, 1.7, 45, 'Fast: +15% P-Pen for 3s', 'Debuffer', 'physical', 0, 10, 10, 0.15, 0, 0.1, 0),
-    ('Gunman', '🔫', 110, 60, 0.9, 160, 45, 0.8, 90, 'Grenade: physical AoE 20px within 2x attack range', 'DPS', 'physical', 0.05, 15, 10, 0.05, 0, 0.1, 0),
-    ('Iceman', '❄️', 100, 90, 1.2, 130, 12, 1.1, 60, 'Summon Frost: Freeze 3 nearest enemies and deal 20 true damage; passive freezes adjacent units below 50% HP', 'Control Mage', 'magic', 0, 10, 20, 0, 0.10, 0.1, 0),
+    ('Healer', '✨', 90, 120, 1.1, 120, 5, 1, 50, 'High Heal: Costs 50% mana to heal 3 nearest allies within 200px for 20 HP each', 'Support', 'physical', 0, 10, 10, 0, 0, 0.1, 0),
+    ('Bowman', '🏹', 100, 40, 1.2, 160, 12, 1.7, 45, 'Fast: Costs 65% mana to increase attack speed by 50% for 3s', 'Debuffer', 'physical', 0, 10, 10, 0.15, 0, 0.1, 0),
+    ('Gunman', '🔫', 110, 60, 0.9, 160, 45, 0.8, 90, 'Range Up: Costs 65% mana to gain +100 range for 3s', 'DPS', 'physical', 0.05, 15, 10, 0.05, 0, 0.1, 0),
+    ('Iceman', '❄️', 100, 90, 1.2, 130, 12, 1.1, 60, 'Summon Frost: Costs 60% mana to freeze 3 nearest enemies within 200px for 2s; frozen units cannot attack or move', 'Control Mage', 'magic', 0, 10, 20, 0, 0.10, 0.1, 0),
     ('ChilyGirl', '🌶️', 85, 100, 1.15, 25, 10, 2.5, 70, 'Chili Shield: Cannot take damage for 3s, gains x3 attack speed, and cannot regenerate mana during the effect; first time below 50% HP enters Protection for 3s reducing damage by 80%, then punches forward for 10x damage', 'Melee Bruiser', 'physical', 0, 50, 50, 0, 0, 0.1, 0),
     ('Sniper', '🎯', 90, 100, 0.7, 300, 80, 0.5, 0, 'Long Range: High damage precision', 'Elite DPS', 'physical', 0.20, 10, 10, 0.30, 0, 0.1, 0);
 
