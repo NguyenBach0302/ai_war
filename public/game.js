@@ -203,6 +203,7 @@ const Profile = (function() {
     let editingSlot = 1;
     let draftLoadouts = null;
     let activeLoadoutSlotDraft = 1;
+    let selectedPreviewUnitName = null;
 
     function getOwnedUnits() {
         return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
@@ -282,6 +283,21 @@ const Profile = (function() {
                         <div><span>Cost</span><strong>${Number(unit.cost || 0)}g</strong></div>
                     </div>
                 </div>
+            </div>
+        `;
+    }
+
+    function renderPreviewPopup(unit) {
+        if (!unit) return '';
+        const current = getDraft(editingSlot);
+        const inDeck = current.unitNames.includes(unit.name);
+        return `
+            <div class="profile-unit-popover">
+                <button type="button" class="profile-popover-close" onclick="Profile.closePreview()">x</button>
+                ${renderPreview(unit)}
+                <button type="button" class="buy-btn primary-action profile-add-btn" onclick="Profile.addUnit(${jsString(unit.name)})" ${inDeck ? 'disabled' : ''}>
+                    ${inDeck ? 'Already In Deck' : 'Add Deck'}
+                </button>
             </div>
         `;
     }
@@ -396,21 +412,20 @@ const Profile = (function() {
             `;
         }
 
-        container.innerHTML = `
-            <div class="profile-deck-tabs">
-                ${draftLoadouts.map(loadout => `
-                    <button type="button" class="${loadout.slot === editingSlot ? 'active' : ''}" onclick="Profile.selectDeck(${loadout.slot})">
-                        <span>Deck ${loadout.slot}</span>
-                        <strong>${escapeHtml(loadout.name)}</strong>
-                    </button>
-                `).join('')}
-            </div>
+        const previewUnit = selectedPreviewUnitName ? ownedMap.get(selectedPreviewUnitName) : null;
 
-            <div class="profile-deck-workbench">
+        container.innerHTML = `
+            <div class="profile-deck-workbench compact">
                 <div class="profile-loadout-card profile-active-deck" data-loadout-slot="${editingSlot}">
+                    ${renderPreviewPopup(previewUnit)}
                     <div class="profile-loadout-head">
                         <div>
-                            <div class="profile-deck-kicker">Selected Deck ${editingSlot}</div>
+                            <div class="profile-deck-kicker">Deck Selection</div>
+                            <select class="profile-deck-listbox" onchange="Profile.selectDeck(this.value)">
+                                ${draftLoadouts.map(loadout => `
+                                    <option value="${loadout.slot}" ${loadout.slot === editingSlot ? 'selected' : ''}>Deck ${loadout.slot} - ${escapeHtml(loadout.name)}</option>
+                                `).join('')}
+                            </select>
                             <input id="loadout-name-${editingSlot}" value="${escapeHtml(current.name)}" maxlength="50" oninput="Profile.syncDeckName()">
                         </div>
                         <label class="profile-active ${activeSlot === editingSlot ? 'is-active' : ''}">
@@ -429,15 +444,11 @@ const Profile = (function() {
                             return unit ? `
                                 <div class="profile-deck-slot filled" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
-                                    <span class="profile-unit-copy">
-                                        <span class="profile-unit-name">${escapeHtml(unit.name)}</span>
-                                        <span class="profile-unit-role">${escapeHtml(unit.role || 'Unit')}</span>
-                                    </span>
                                     <button type="button" onclick="Profile.removeUnit(${index})">x</button>
                                 </div>
                             ` : `
                                 <div class="profile-deck-slot empty" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
-                                    <span>Drop Unit</span>
+                                    <span>+</span>
                                 </div>
                             `;
                         }).join('')}
@@ -452,21 +463,16 @@ const Profile = (function() {
                         </div>
                         <span>${ownedUnits.length} units</span>
                     </div>
-                    <div class="profile-roster-layout">
-                        <div class="profile-roster-grid">
-                            ${ownedUnits.map(unit => {
-                                const selected = current.unitNames.includes(unit.name);
-                                return `
-                                    <div class="profile-roster-card ${selected ? 'selected' : ''}" tabindex="0" draggable="true" onmouseenter="Profile.previewUnit(${jsString(unit.name)})" onfocus="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
-                                        <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
-                                        <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                        <div class="profile-preview" id="profile-unit-preview">
-                            ${renderPreview(ownedUnits[0])}
-                        </div>
+                    <div class="profile-roster-grid compact">
+                        ${ownedUnits.map(unit => {
+                            const selected = current.unitNames.includes(unit.name);
+                            return `
+                                <div class="profile-roster-card ${selected ? 'selected' : ''}" tabindex="0" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                    <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
+                                    <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
+                                </div>
+                            `;
+                        }).join('')}
                     </div>
                 </div>
             </div>
@@ -496,6 +502,7 @@ const Profile = (function() {
     function selectDeck(slot) {
         syncDeckName();
         editingSlot = Number(slot) || 1;
+        selectedPreviewUnitName = null;
         render();
     }
 
@@ -526,6 +533,7 @@ const Profile = (function() {
             loadout.unitNames = loadout.unitNames.filter(name => name !== unitName);
             loadout.unitNames[replaceIndex] = unitName;
             loadout.unitNames = loadout.unitNames.filter(Boolean).slice(0, 5);
+            selectedPreviewUnitName = null;
             setStatus('');
             render();
             return;
@@ -535,6 +543,7 @@ const Profile = (function() {
             return;
         }
         loadout.unitNames.push(unitName);
+        selectedPreviewUnitName = null;
         setStatus('');
         render();
     }
@@ -554,9 +563,13 @@ const Profile = (function() {
     }
 
     function previewUnit(unitName) {
-        const preview = document.getElementById('profile-unit-preview');
-        const unit = getOwnedUnitMap().get(unitName);
-        if (preview) preview.innerHTML = renderPreview(unit);
+        selectedPreviewUnitName = unitName;
+        render();
+    }
+
+    function closePreview() {
+        selectedPreviewUnitName = null;
+        render();
     }
 
     async function save() {
@@ -597,7 +610,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit, previewUnit };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit, previewUnit, closePreview };
 })();
 
 const UI = (function() {
