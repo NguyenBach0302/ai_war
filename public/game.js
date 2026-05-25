@@ -206,6 +206,7 @@ const Profile = (function() {
     let selectedPreviewUnitName = null;
     let lastTapUnitName = null;
     let lastTapAt = 0;
+    let selectedRosterUnitName = null;
 
     function getOwnedUnits() {
         return Array.isArray(Auth.getUser()?.ownedUnits) ? Auth.getUser().ownedUnits : [];
@@ -292,6 +293,7 @@ const Profile = (function() {
     function renderPreviewPopup(unit) {
         if (!unit) return '';
         const current = getDraft(editingSlot);
+        if (selectedRosterUnitName && !ownedMap.has(selectedRosterUnitName)) selectedRosterUnitName = null;
         const inDeck = current.unitNames.includes(unit.name);
         return `
             <div class="profile-unit-popover">
@@ -449,8 +451,9 @@ const Profile = (function() {
                                     <button type="button" onclick="Profile.removeUnit(${index})">x</button>
                                 </div>
                             ` : `
-                                <div class="profile-deck-slot empty" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                <button type="button" class="profile-deck-slot empty" onclick="Profile.fillSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
                                     <span>+</span>
+                                </button>
                                 </div>
                             `;
                         }).join('')}
@@ -467,9 +470,10 @@ const Profile = (function() {
                     </div>
                     <div class="profile-roster-grid compact">
                         ${ownedUnits.map(unit => {
-                            const selected = current.unitNames.includes(unit.name);
+                            const inDeck = current.unitNames.includes(unit.name);
+                            const selected = selectedRosterUnitName === unit.name;
                             return `
-                                <button type="button" class="profile-roster-card ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                <button type="button" class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
                                 </button>
@@ -505,6 +509,7 @@ const Profile = (function() {
         syncDeckName();
         editingSlot = Number(slot) || 1;
         selectedPreviewUnitName = null;
+        selectedRosterUnitName = null;
         render();
     }
 
@@ -536,6 +541,7 @@ const Profile = (function() {
             loadout.unitNames[replaceIndex] = unitName;
             loadout.unitNames = loadout.unitNames.filter(Boolean).slice(0, 5);
             selectedPreviewUnitName = null;
+            selectedRosterUnitName = null;
             setStatus('');
             render();
             return;
@@ -546,8 +552,17 @@ const Profile = (function() {
         }
         loadout.unitNames.push(unitName);
         selectedPreviewUnitName = null;
+        selectedRosterUnitName = null;
         setStatus('');
         render();
+    }
+
+    function fillSlot(index) {
+        if (!selectedRosterUnitName) {
+            setStatus('Select a unit from the roster first.');
+            return;
+        }
+        addUnit(selectedRosterUnitName, index);
     }
 
     function dropUnit(event, replaceIndex = null) {
@@ -565,6 +580,7 @@ const Profile = (function() {
     }
 
     function previewUnit(unitName) {
+        selectedRosterUnitName = unitName;
         const now = performance.now();
         if (lastTapUnitName === unitName && now - lastTapAt < 420) {
             lastTapUnitName = null;
@@ -621,7 +637,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, removeUnit, previewUnit, closePreview };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, fillSlot, removeUnit, previewUnit, closePreview };
 })();
 
 const UI = (function() {

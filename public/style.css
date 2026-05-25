@@ -1799,8 +1799,18 @@ canvas {
 }
 
 .profile-roster-card.selected {
-  border-color: rgba(251, 191, 36, 0.82);
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.16), 0 0 16px rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.2), 0 0 18px rgba(251, 191, 36, 0.22);
+}
+
+.profile-roster-card.in-deck {
+  border-color: rgba(16, 185, 129, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.22), 0 0 14px rgba(16, 185, 129, 0.18);
+}
+
+.profile-roster-card.in-deck.selected {
+  border-color: rgba(251, 191, 36, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.24), 0 0 18px rgba(251, 191, 36, 0.24);
 }
 
 .profile-roster-card .profile-unit-art {
@@ -1882,6 +1892,17 @@ canvas {
   font-size: 22px;
   font-weight: 900;
   line-height: 1;
+}
+
+button.profile-deck-slot.empty {
+  cursor: pointer;
+  color: inherit;
+  font-family: var(--font-ui);
+}
+
+button.profile-deck-slot.empty:hover {
+  border-color: rgba(251, 191, 36, 0.74);
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.14);
 }
 
 .profile-deck-workbench.compact .profile-deck-slot button {
