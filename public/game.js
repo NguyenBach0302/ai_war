@@ -581,26 +581,19 @@ const Game = (function() {
     let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
     let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0, onlinePublishInFlight = false;
     let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0, onlineConfirmedFrame = 0;
-    let onlineRenderFrame = 0, renderNowMs = performance.now(), lastRenderNowMs = renderNowMs;
     let processedOnlineActionIds = new Set();
     let processedVisualEventIds = new Set();
     let pendingOnlineEvents = [];
     let onlineServerClockOffsetMs = 0;
-    let onlineStateBuffer = [];
-    let interpolatedUnitsBuffer = [];
     let mapBackgroundCanvas = null;
     let playerHudCache = [];
     let lastUnitButtonsUpdateFrame = -1;
     let sortedUnitsBuffer = [];
-    let sortedUnitsDirty = true;
-    let particlePool = [], vfxPool = [], floatingTextPool = [], trailPointPool = [];
     const MAX_PARTICLES = 150;
     const MAX_VFX = 50;
     const MAX_TEXTS = 50;
     const MAX_UNITS_PER_PLAYER = 50;
-    const ONLINE_RENDER_DELAY_FRAMES = 6;
-    const ONLINE_STATE_BUFFER_SIZE = 20;
-    const MAX_PROJECTILE_TRAIL_POINTS = 8;
+    const ONLINE_RENDER_DELAY_FRAMES = 0;
     const WIRE_TYPE_TO_NAME = {
         1: 'Guard',
         2: 'Assassin',
@@ -871,47 +864,6 @@ const Game = (function() {
         return fxRngState / 0x100000000;
     };
     const serverNowMs = () => Date.now() + onlineServerClockOffsetMs;
-    const getSimulationElapsedMs = () => Math.max(0, renderNowMs - simulationStartedAt);
-    const getSimulationFrameFloat = () => getSimulationElapsedMs() / FIXED_FRAME_MS;
-    const getRenderFrameFloat = () => (onlineMode && !onlineAuthoritative ? onlineRenderFrame : getSimulationFrameFloat());
-    const getAnimationElapsedFrames = (u) => {
-        if (Number.isFinite(Number(u?.animStartedAtMs))) {
-            return Math.max(0, (renderNowMs - Number(u.animStartedAtMs)) / FIXED_FRAME_MS);
-        }
-        return Math.max(0, getRenderFrameFloat() - Number(u?.animStartedAt || 0));
-    };
-    const allocTrailPoint = (x, y) => {
-        const point = trailPointPool.pop() || { x: 0, y: 0 };
-        point.x = x;
-        point.y = y;
-        return point;
-    };
-    const recycleTrail = (trail) => {
-        if (!Array.isArray(trail)) return;
-        while (trail.length > 0) {
-            trailPointPool.push(trail.pop());
-        }
-    };
-    const pushTrailPoint = (pr, x, y) => {
-        if (!Array.isArray(pr.trail)) pr.trail = [];
-        if (pr.trail.length >= MAX_PROJECTILE_TRAIL_POINTS) {
-            const recycled = pr.trail.shift();
-            if (recycled) trailPointPool.push(recycled);
-        }
-        pr.trail.push(allocTrailPoint(x, y));
-    };
-    const allocParticle = () => particlePool.pop() || {};
-    const releaseParticle = particle => {
-        particlePool.push(particle);
-    };
-    const allocVfx = () => vfxPool.pop() || {};
-    const releaseVfx = fx => {
-        vfxPool.push(fx);
-    };
-    const allocFloatingText = () => floatingTextPool.pop() || {};
-    const releaseFloatingText = text => {
-        floatingTextPool.push(text);
-    };
     const isMeleeUnit = (u) => (u.meta?.range || 0) < 35;
     const targetPressure = (target, owner) => {
         if (target.base) return 0;
@@ -1175,97 +1127,10 @@ const Game = (function() {
     }
 
     function startUnitAction(u, action) {
-        if (u.animAction !== action || getAnimationElapsedFrames(u) > 40) {
+        if (u.animAction !== action || frameCount - (u.animStartedAt || 0) > 40) {
             u.animAction = action;
             u.animStartedAt = frameCount;
-            u.animStartedAtMs = renderNowMs;
         }
-    }
-
-    function cloneUnitForSnapshot(unit) {
-        return {
-            ...unit,
-            buffs: Array.isArray(unit.buffs) ? unit.buffs.map(buff => ({ ...buff })) : []
-        };
-    }
-
-    function pushOnlineStateSnapshot(frame, serverNow = serverNowMs()) {
-        if (!onlineMode || onlineAuthoritative) return;
-        const snapshotUnits = units.map(cloneUnitForSnapshot);
-        onlineStateBuffer.push({
-            frame: Number(frame || 0),
-            serverNow: Number(serverNow || serverNowMs()),
-            units: snapshotUnits,
-            unitMap: new Map(snapshotUnits.map(unit => [unit.id, unit]))
-        });
-        if (onlineStateBuffer.length > ONLINE_STATE_BUFFER_SIZE) {
-            onlineStateBuffer.splice(0, onlineStateBuffer.length - ONLINE_STATE_BUFFER_SIZE);
-        }
-        sortedUnitsDirty = true;
-    }
-
-    function buildInterpolatedUnits(targetFrame) {
-        if (!onlineMode || onlineAuthoritative || onlineStateBuffer.length === 0) return units;
-        let nextSnapshot = onlineStateBuffer[onlineStateBuffer.length - 1];
-        let previousSnapshot = onlineStateBuffer[0];
-
-        for (let i = 0; i < onlineStateBuffer.length; i++) {
-            const snapshot = onlineStateBuffer[i];
-            if (snapshot.frame <= targetFrame) previousSnapshot = snapshot;
-            if (snapshot.frame >= targetFrame) {
-                nextSnapshot = snapshot;
-                break;
-            }
-        }
-
-        if (!nextSnapshot || !previousSnapshot) return units;
-        const span = Math.max(1, nextSnapshot.frame - previousSnapshot.frame);
-        const alpha = nextSnapshot === previousSnapshot
-            ? 1
-            : Math.max(0, Math.min(1, (targetFrame - previousSnapshot.frame) / span));
-        const nextUnits = nextSnapshot.units;
-        if (interpolatedUnitsBuffer.length !== nextUnits.length) {
-            interpolatedUnitsBuffer.length = nextUnits.length;
-            sortedUnitsDirty = true;
-        }
-
-        for (let i = 0; i < nextUnits.length; i++) {
-            const nextUnit = nextUnits[i];
-            const previousUnit = previousSnapshot.unitMap.get(nextUnit.id);
-            const out = interpolatedUnitsBuffer[i] || {};
-            const source = previousUnit || nextUnit;
-            const lerp = (a, b) => a + (b - a) * alpha;
-            out.id = nextUnit.id;
-            out.owner = nextUnit.owner;
-            out.type = nextUnit.type;
-            out.meta = nextUnit.meta;
-            out.maxHp = nextUnit.maxHp;
-            out.maxMana = nextUnit.maxMana;
-            out.hp = previousUnit ? lerp(Number(previousUnit.hp || 0), Number(nextUnit.hp || 0)) : Number(nextUnit.hp || 0);
-            out.mana = previousUnit ? lerp(Number(previousUnit.mana || 0), Number(nextUnit.mana || 0)) : Number(nextUnit.mana || 0);
-            out.x = previousUnit ? lerp(Number(previousUnit.x || 0), Number(nextUnit.x || 0)) : Number(nextUnit.x || 0);
-            out.y = previousUnit ? lerp(Number(previousUnit.y || 0), Number(nextUnit.y || 0)) : Number(nextUnit.y || 0);
-            out.laneY = previousUnit ? lerp(Number(previousUnit.laneY || out.y), Number(nextUnit.laneY || out.y)) : Number(nextUnit.laneY || out.y);
-            out.marchTargetY = previousUnit ? lerp(Number(previousUnit.marchTargetY || out.y), Number(nextUnit.marchTargetY || out.y)) : Number(nextUnit.marchTargetY || out.y);
-            out.marchRetargetCooldown = Number(source.marchRetargetCooldown || 0);
-            out.lastMarchSteerDir = Number(source.lastMarchSteerDir || 0);
-            out.state = alpha < 0.5 ? source.state : nextUnit.state;
-            out.radius = Number(nextUnit.radius || source.radius || 12);
-            out.buffs = nextUnit.buffs;
-            out.isPet = !!nextUnit.isPet;
-            out.untargetableTimer = Number(source.untargetableTimer || 0);
-            out.facing = alpha < 0.5 ? source.facing : nextUnit.facing;
-            out.blockTimer = Number(source.blockTimer || 0);
-            out.animAction = nextUnit.animAction || source.animAction || 'idle';
-            out.animStartedAt = Number(nextUnit.animStartedAt || source.animStartedAt || 0);
-            out.currentTargetKey = nextUnit.currentTargetKey || source.currentTargetKey || null;
-            out.baseFocusTargetKey = nextUnit.baseFocusTargetKey || source.baseFocusTargetKey || null;
-            out.icemanPassiveTriggered = !!nextUnit.icemanPassiveTriggered;
-            out.chilyProtectionTriggered = !!nextUnit.chilyProtectionTriggered;
-            interpolatedUnitsBuffer[i] = out;
-        }
-
-        return interpolatedUnitsBuffer;
     }
 
     function facingFromVector(dx, dy, fallback = 'right') {
@@ -1355,16 +1220,15 @@ const Game = (function() {
         for (let i = 0; i < count && particles.length < MAX_PARTICLES; i++) {
             const angle = fxRng() * Math.PI * 2;
             const speed = fxRng() * power + 0.4;
-            const particle = allocParticle();
-            particle.x = x;
-            particle.y = y;
-            particle.vx = Math.cos(angle) * speed;
-            particle.vy = Math.sin(angle) * speed;
-            particle.life = 24 + fxRng() * 24;
-            particle.maxLife = 48;
-            particle.size = 1.5 + fxRng() * 3;
-            particle.color = color;
-            particles.push(particle);
+            particles.push({
+                x, y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 24 + fxRng() * 24,
+                maxLife: 48,
+                size: 1.5 + fxRng() * 3,
+                color
+            });
         }
     }
 
@@ -1728,7 +1592,7 @@ const Game = (function() {
 
         // Check for unit hover
         let hoveredUnit = null;
-        getRenderableUnits().forEach(u => { if (dist(mousePos, u) < u.radius + 5) hoveredUnit = u; });
+        units.forEach(u => { if (dist(mousePos, u) < u.radius + 5) hoveredUnit = u; });
 
         const popup = document.getElementById('unit-detail-popup');
         if (hoveredUnit) {
@@ -1939,10 +1803,6 @@ const Game = (function() {
         const seq = Number(payload?.seq || 0);
         const state = payload?.state;
         if (!state || seq <= onlineStateSeq) return;
-        syncOnlineClock({
-            serverNow: payload.serverNow,
-            confirmedFrame: payload.frame ?? state.fc
-        });
         onlineStateSeq = seq;
         frameCount = Number(state.frameCount || state.fc || payload.frame || frameCount);
         const previousUnits = new Map(units.map(unit => [unit.id, {
@@ -1981,8 +1841,7 @@ const Game = (function() {
                     radius: Number(entry.radius || 12),
                     isPet: !!entry.isPet,
                     untargetableTimer: Number(entry.untargetableTimer || 0),
-                    blockTimer: Number(entry.blockTimer || 0),
-                    animStartedAtMs: simulationStartedAt + Number(entry.animStartedAt || 0) * FIXED_FRAME_MS
+                    blockTimer: Number(entry.blockTimer || 0)
                 };
             }
 
@@ -2010,7 +1869,6 @@ const Game = (function() {
                 blockTimer: 0,
                 animAction: WIRE_ANIM_TO_NAME[entry.a] || entry.a || 'idle',
                 animStartedAt: Number(entry.z || 0),
-                animStartedAtMs: simulationStartedAt + Number(entry.z || 0) * FIXED_FRAME_MS,
                 meta: CLASSES[typeName]
             };
         };
@@ -2045,7 +1903,6 @@ const Game = (function() {
                 .map(decodeUnit)
                 .filter(unit => unit.meta?.name);
         }
-        pushOnlineStateSnapshot(frameCount, payload.serverNow);
 
         synthesizeAuthoritativeProjectiles(previousUnits);
         if (Array.isArray(payload.events)) applyAuthoritativeEvents(payload.events);
@@ -2101,7 +1958,7 @@ const Game = (function() {
             dmgType: event.dmgType || 'physical',
             sprite: event.sprite || null,
             explosionRadius: Number(event.explosionRadius || 0),
-            trail: [allocTrailPoint(x, y)],
+            trail: [{ x, y }],
             visualOnly: true,
             life: 90
         });
@@ -2115,7 +1972,7 @@ const Game = (function() {
         if (event.type === 'vfx') spawnVFX(Number(event.x || 0), Number(event.y || 0), event.text || '', event.color || '#fff');
     }
 
-    function updateClientVisuals(stepFrames = 1) {
+    function updateClientVisuals() {
         for (let i = projectiles.length - 1; i >= 0; i--) {
             const pr = projectiles[i];
             const d = dist(pr, { x: pr.tx, y: pr.ty });
@@ -2126,45 +1983,31 @@ const Game = (function() {
                     spawnImpact(pr.tx, pr.ty, impactColor, pr.dmgType === 'magic' ? 24 : 18);
                     addParticle(pr.tx, pr.ty, impactColor, pr.dmgType === 'magic' ? 10 : 6, 2.2);
                 }
-                recycleTrail(pr.trail);
                 projectiles.splice(i, 1);
                 continue;
             }
             const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
-            pushTrailPoint(pr, pr.x, pr.y);
-            pr.x += Math.cos(angle) * (pr.speed || 8) * stepFrames;
-            pr.y += Math.sin(angle) * (pr.speed || 8) * stepFrames;
-            pr.life -= stepFrames;
+            if (!Array.isArray(pr.trail)) pr.trail = [];
+            pr.trail.push({ x: pr.x, y: pr.y });
+            if (pr.trail.length > 8) pr.trail.shift();
+            pr.x += Math.cos(angle) * (pr.speed || 8);
+            pr.y += Math.sin(angle) * (pr.speed || 8);
+            pr.life--;
         }
         for (let i = vfx.length - 1; i >= 0; i--) {
             const fx = vfx[i];
-            fx.life -= stepFrames;
-            fx.radius += fx.growth * stepFrames;
-            if (fx.life <= 0) {
-                vfx.splice(i, 1);
-                releaseVfx(fx);
-            }
+            fx.life--;
+            fx.radius += fx.growth;
+            if (fx.life <= 0) vfx.splice(i, 1);
         }
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
-            p.x += p.vx * stepFrames;
-            p.y += p.vy * stepFrames;
-            p.vx *= Math.pow(0.95, stepFrames);
-            p.vy *= Math.pow(0.95, stepFrames);
-            p.life -= stepFrames;
-            if (p.life <= 0) {
-                particles.splice(i, 1);
-                releaseParticle(p);
-            }
-        }
-        for (let i = floatingTexts.length - 1; i >= 0; i--) {
-            const text = floatingTexts[i];
-            text.y += text.vy * stepFrames;
-            text.life -= stepFrames;
-            if (text.life <= 0) {
-                floatingTexts.splice(i, 1);
-                releaseFloatingText(text);
-            }
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.95;
+            p.vy *= 0.95;
+            p.life--;
+            if (p.life <= 0) particles.splice(i, 1);
         }
     }
 
@@ -2235,12 +2078,13 @@ const Game = (function() {
                 if (d < Math.max(8, pr.speed || 8) || pr.life <= 0) {
                     if (pr.explosionRadius) spawnExplosion(pr.tx, pr.ty, pr.owner, pr.explosionRadius);
                     else spawnImpact(pr.tx, pr.ty, pr.dmgType === 'magic' ? '#a78bfa' : pr.color, 18);
-                    recycleTrail(pr.trail);
                     projectiles.splice(i, 1);
                     continue;
                 }
                 const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x);
-                pushTrailPoint(pr, pr.x, pr.y);
+                if (!Array.isArray(pr.trail)) pr.trail = [];
+                pr.trail.push({ x: pr.x, y: pr.y });
+                if (pr.trail.length > 8) pr.trail.shift();
                 pr.x += Math.cos(angle) * (pr.speed || 8);
                 pr.y += Math.sin(angle) * (pr.speed || 8);
                 pr.life--;
@@ -2323,7 +2167,6 @@ const Game = (function() {
                         spawnVFX(pr.tx, pr.ty, (dmgRes.isCrit ? '💥' : '') + Math.floor(dmgRes.amount), dmgRes.isCrit ? '#ff0000' : '#fff');
                     }
                 });
-                recycleTrail(pr.trail);
                 projectiles.splice(i, 1);
             } else { const angle = Math.atan2(pr.ty - pr.y, pr.tx - pr.x); pr.x += Math.cos(angle) * pr.speed; pr.y += Math.sin(angle) * pr.speed; }
         }
@@ -2483,14 +2326,9 @@ const Game = (function() {
                 if (u.lastAttacker !== null) addGold(u.lastAttacker, u.meta.cost * 0.3);
                 queueOnlineEvent({ type: 'unit-death', unitId: u.id, unitType: u.type, owner: u.owner, killerOwner: u.lastAttacker, x: u.x, y: u.y });
                 units.splice(i, 1);
-                sortedUnitsDirty = true;
             }
         }
-        if (unitsPending.length > 0) {
-            units.push(...unitsPending);
-            unitsPending = [];
-            sortedUnitsDirty = true;
-        }
+        if (unitsPending.length > 0) { units.push(...unitsPending); unitsPending = []; }
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
             p.x += p.vx;
@@ -2498,28 +2336,13 @@ const Game = (function() {
             p.vx *= 0.94;
             p.vy *= 0.94;
             p.life--;
-            if (p.life <= 0) {
-                particles.splice(i, 1);
-                releaseParticle(p);
-            }
+            if (p.life <= 0) particles.splice(i, 1);
         }
         for (let i = vfx.length - 1; i >= 0; i--) {
             const fx = vfx[i];
             fx.life--;
             fx.radius += fx.growth;
-            if (fx.life <= 0) {
-                vfx.splice(i, 1);
-                releaseVfx(fx);
-            }
-        }
-        for (let i = floatingTexts.length - 1; i >= 0; i--) {
-            const text = floatingTexts[i];
-            text.y += text.vy;
-            text.life--;
-            if (text.life <= 0) {
-                floatingTexts.splice(i, 1);
-                releaseFloatingText(text);
-            }
+            if (fx.life <= 0) vfx.splice(i, 1);
         }
         publishOnlineState();
 
@@ -2820,81 +2643,194 @@ const Game = (function() {
         return true;
     }
 
-    function resolveSpriteFrame(u, sheets, preferredAction, activeSpeed, idleSpeed, fallbackAction) {
-        let action = preferredAction;
-        const elapsed = getAnimationElapsedFrames(u);
+    function drawBowmanSprite(u) {
+        const sheets = SPRITES.bowman;
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
         const actionSheet = sheets[action];
         const actionFrames = getSheetFrameCount(actionSheet);
-        const actionDuration = actionFrames * activeSpeed;
+        const actionDuration = actionFrames * 4;
 
         if (!action || !actionSheet || elapsed >= actionDuration) {
-            action = fallbackAction;
+            action = u.state === 'march' ? 'walk' : 'idle';
         }
 
         const sheet = sheets[action] || sheets.idle;
-        const frameSpeed = action === preferredAction ? activeSpeed : idleSpeed;
-        const frame = action === preferredAction
+        const frameSpeed = action === 'shot' || action.startsWith('attack_') ? 4 : 6;
+        const frame = action === u.animAction
             ? Math.floor(Math.max(0, elapsed) / frameSpeed)
-            : Math.floor(getRenderFrameFloat() / frameSpeed);
+            : Math.floor(frameCount / frameSpeed);
 
-        return { action, sheet, frame };
-    }
-
-    function drawBowmanSprite(u) {
-        const sheets = SPRITES.bowman;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? 'walk' : 'idle');
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawAssassinSprite(u) {
         const sheets = SPRITES.assassin;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? 'run' : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? 'run' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action.startsWith('attack_') ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawGuardSprite(u) {
         const sheets = SPRITES.guard;
         const isProtecting = u.buffs.some(b => b.type === 'statue');
-        const action = isProtecting ? 'protect' : u.animAction;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, action, action === 'defend' || String(action).startsWith('attack_') ? 4 : 7, 7, u.blockTimer > 0 ? 'defend' : u.state === 'march' ? 'walk' : 'idle');
+        let action = isProtecting ? 'protect' : u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || (!isProtecting && elapsed >= actionDuration)) {
+            action = u.blockTimer > 0 ? 'defend' : u.state === 'march' ? 'walk' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action.startsWith('attack_') || action === 'defend' ? 4 : 7;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 78, -8);
     }
 
     function drawMageSprite(u) {
         const sheets = SPRITES.mage;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? 'walk' : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? 'walk' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action.startsWith('attack_') ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawGunnerSprite(u) {
         const sheets = SPRITES.gunner;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? 'run' : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? 'run' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action === 'attack' || action.startsWith('shot_') ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawSniperSprite(u) {
         const sheets = SPRITES.sniper;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 5, 7, u.state === 'march' ? 'walk' : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 5;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? 'walk' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action === 'shot' ? 5 : 7;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawHealerSprite(u) {
         const sheets = SPRITES.healer;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? (u.healerRunning ? 'run' : 'walk') : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? (u.healerRunning ? 'run' : 'walk') : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action.startsWith('attack_') ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
     function drawIcemanSprite(u) {
         const sheets = SPRITES.iceman;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, u.animAction, 4, 6, u.state === 'march' ? 'walk' : 'idle');
+        let action = u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || elapsed >= actionDuration) {
+            action = u.state === 'march' ? 'walk' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action.startsWith('attack_') || action.startsWith('charge_') ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 78, -8);
     }
 
     function drawChilyGirlSprite(u) {
         const sheets = SPRITES.chilygirl;
         const isProtecting = u.buffs.some(b => b.type === 'chily_protection');
-        const action = isProtecting ? 'protect' : u.animAction;
-        const { sheet, frame } = resolveSpriteFrame(u, sheets, action, action === 'attack' || action === 'protect' ? 4 : 6, 6, u.state === 'march' ? 'run' : 'idle');
+        let action = isProtecting ? 'protect' : u.animAction;
+        const elapsed = frameCount - (u.animStartedAt || 0);
+        const actionSheet = sheets[action];
+        const actionFrames = getSheetFrameCount(actionSheet);
+        const actionDuration = actionFrames * 4;
+
+        if (!action || !actionSheet || (!isProtecting && elapsed >= actionDuration)) {
+            action = u.state === 'march' ? 'run' : 'idle';
+        }
+
+        const sheet = sheets[action] || sheets.idle;
+        const frameSpeed = action === 'attack' || action === 'protect' ? 4 : 6;
+        const frame = action === u.animAction
+            ? Math.floor(Math.max(0, elapsed) / frameSpeed)
+            : Math.floor(frameCount / frameSpeed);
+
         return drawSheetAnimation(sheet, frame, 76, -8);
     }
 
@@ -2903,10 +2839,9 @@ const Game = (function() {
         const protection = u.buffs.some(b => b.type === 'chily_protection');
         const fast = u.buffs.some(b => b.type === 'atk_speed_mult');
         const dir = u.facing === 'left' ? -1 : 1;
-        const renderFrame = getRenderFrameFloat();
 
         if (invuln || protection) {
-            const pulse = 0.55 + Math.sin(renderFrame / 5) * 0.18;
+            const pulse = 0.55 + Math.sin(frameCount / 5) * 0.18;
             ctx.save();
             ctx.globalAlpha = pulse;
             ctx.strokeStyle = invuln ? '#ef4444' : '#fda4af';
@@ -2917,7 +2852,7 @@ const Game = (function() {
             ctx.globalAlpha = pulse * 0.55;
             ctx.fillStyle = invuln ? '#ef4444' : '#fb7185';
             for (let i = 0; i < 4; i++) {
-                const a = renderFrame / 9 + i * Math.PI / 2;
+                const a = frameCount / 9 + i * Math.PI / 2;
                 px(Math.cos(a) * 22 - 2, -16 + Math.sin(a) * 28 - 2, 4, 4, ctx.fillStyle);
             }
             ctx.restore();
@@ -2927,13 +2862,13 @@ const Game = (function() {
             ctx.save();
             ctx.globalAlpha = 0.5;
             for (let i = 0; i < 3; i++) {
-                const x = -dir * (16 + i * 7 + renderFrame % 5);
+                const x = -dir * (16 + i * 7 + frameCount % 5);
                 px(x, -28 + i * 8, 12, 3, '#fca5a5');
             }
             ctx.restore();
         }
 
-        if (u.animAction === 'attack' && getAnimationElapsedFrames(u) < 18) {
+        if (u.animAction === 'attack' && frameCount - (u.animStartedAt || 0) < 18) {
             ctx.save();
             ctx.globalAlpha = 0.72;
             ctx.strokeStyle = '#ef4444';
@@ -2954,8 +2889,7 @@ const Game = (function() {
 
     function drawUnit(u) {
         const p = players[u.owner];
-        const renderFrame = getRenderFrameFloat();
-        const bob = Math.round(Math.sin(renderFrame / 12 + u.x * 0.02) * 2);
+        const bob = Math.round(Math.sin(frameCount / 12 + u.x * 0.02) * 2);
         const sx = Math.round(u.x);
         const sy = Math.round(u.y + bob);
 
@@ -2994,7 +2928,7 @@ const Game = (function() {
             if (!drawChilyGirlSprite(u)) drawUnitBody(u, p.color.main);
         } else {
             if (u.facing === 'left') ctx.scale(-1, 1);
-            if (u.state === 'fight' && renderFrame % 18 < 9) ctx.translate(1, 0);
+            if (u.state === 'fight' && frameCount % 18 < 9) ctx.translate(1, 0);
             drawUnitBody(u, p.color.main);
         }
 
@@ -3017,39 +2951,15 @@ const Game = (function() {
         ctx.restore();
     }
 
-    function getRenderableUnits() {
-        return onlineMode && !onlineAuthoritative ? buildInterpolatedUnits(onlineRenderFrame) : units;
-    }
-
-    function getSortedRenderableUnits() {
-        const sourceUnits = getRenderableUnits();
-        if (sortedUnitsDirty || sortedUnitsBuffer.length !== sourceUnits.length) {
-            sortedUnitsBuffer.length = sourceUnits.length;
-            for (let i = 0; i < sourceUnits.length; i++) {
-                sortedUnitsBuffer[i] = sourceUnits[i];
-            }
-        }
-        for (let i = 1; i < sortedUnitsBuffer.length; i++) {
-            const current = sortedUnitsBuffer[i];
-            let j = i - 1;
-            while (j >= 0 && Number(sortedUnitsBuffer[j].y || 0) > Number(current.y || 0)) {
-                sortedUnitsBuffer[j + 1] = sortedUnitsBuffer[j];
-                j--;
-            }
-            sortedUnitsBuffer[j + 1] = current;
-        }
-        sortedUnitsDirty = false;
-        return sortedUnitsBuffer;
-    }
-
     function draw() {
-        const renderFrame = getRenderFrameFloat();
         ctx.clearRect(0, 0, MAP_W, MAP_H);
         drawMapBackground();
         players.forEach(p => {
             drawBase(p);
         });
-        getSortedRenderableUnits().forEach(drawUnit);
+        sortedUnitsBuffer = units.slice();
+        sortedUnitsBuffer.sort((a, b) => a.y - b.y);
+        sortedUnitsBuffer.forEach(drawUnit);
         vfx.forEach(fx => {
             const pct = fx.life / fx.maxLife;
             ctx.save();
@@ -3104,7 +3014,7 @@ const Game = (function() {
             } else if ((pr.sprite === 'healer_fire_1' || pr.sprite === 'healer_fire_2') && isSpriteReady(SPRITES.healer[pr.sprite === 'healer_fire_1' ? 'fire_1' : 'fire_2'].img)) {
                 const sheet = SPRITES.healer[pr.sprite === 'healer_fire_1' ? 'fire_1' : 'fire_2'];
                 const frames = getSheetFrameCount(sheet);
-                const frame = Math.floor(renderFrame / 3) % frames;
+                const frame = Math.floor(frameCount / 3) % frames;
                 ctx.translate(x, y);
                 ctx.rotate(angle);
                 ctx.imageSmoothingEnabled = false;
@@ -3112,7 +3022,7 @@ const Game = (function() {
             } else if (pr.sprite === 'iceman_magic_arrow' && isSpriteReady(SPRITES.iceman.magic_arrow.img)) {
                 const sheet = SPRITES.iceman.magic_arrow;
                 const frames = getSheetFrameCount(sheet);
-                const frame = Math.floor(renderFrame / 3) % frames;
+                const frame = Math.floor(frameCount / 3) % frames;
                 ctx.translate(x, y);
                 ctx.rotate(angle);
                 ctx.imageSmoothingEnabled = false;
@@ -3126,7 +3036,7 @@ const Game = (function() {
             } else if (pr.sprite === 'mage_charge' && isSpriteReady(SPRITES.mage.charge.img)) {
                 const sheet = SPRITES.mage.charge;
                 const frames = getSheetFrameCount(sheet);
-                const frame = Math.floor(renderFrame / 3) % frames;
+                const frame = Math.floor(frameCount / 3) % frames;
                 ctx.translate(x, y);
                 ctx.rotate(angle);
                 ctx.imageSmoothingEnabled = false;
@@ -3150,8 +3060,10 @@ const Game = (function() {
             ctx.restore();
         });
         for (let i = floatingTexts.length - 1; i >= 0; i--) {
-            const t = floatingTexts[i];
+            let t = floatingTexts[i];
             ctx.globalAlpha = t.life / 60; ctx.fillStyle = t.color; ctx.font = 'bold 14px "Rajdhani"'; ctx.fillText(t.text, t.x, t.y);
+            t.y += t.vy; t.life--;
+            if (t.life <= 0) floatingTexts.splice(i, 1);
         }
         ctx.globalAlpha = 1;
         if (paused) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,MAP_W,MAP_H); ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Rajdhani'; ctx.fillText("GAME PAUSED", MAP_W/2, MAP_H/2); }
@@ -3159,14 +3071,10 @@ const Game = (function() {
 
     function loop(now = performance.now()) {
         if (!running) return;
-        const stepFrames = Math.max(0.25, Math.min(3, (now - lastRenderNowMs) / FIXED_FRAME_MS || 1));
-        renderNowMs = now;
-        lastRenderNowMs = now;
 
         if (onlineMode) {
             if (!onlineAuthoritative) {
-                onlineRenderFrame = Math.max(0, Math.min(onlineConfirmedFrame, (serverNowMs() - onlineStartsAtServerMs) / FIXED_FRAME_MS - ONLINE_RENDER_DELAY_FRAMES));
-                updateClientVisuals(stepFrames);
+                updateClientVisuals();
                 draw();
                 if (running) requestAnimationFrame(loop);
                 return;
@@ -3353,9 +3261,6 @@ const Game = (function() {
             : 0;
         onlineStartsAtServerMs = onlineMode ? Number(options.startsAt || serverNowMs()) : 0;
         onlineConfirmedFrame = onlineMode ? Math.max(0, Math.floor(Number(options.confirmedFrame || 0))) : 0;
-        onlineRenderFrame = onlineConfirmedFrame;
-        onlineStateBuffer = [];
-        interpolatedUnitsBuffer = [];
         if (onlineMode && Array.isArray(options.units)) applyUnitData(options.units);
         setSeed(onlineMode ? options.seed : 1);
         canvas = document.getElementById('gameCanvas'); 
@@ -3378,13 +3283,6 @@ const Game = (function() {
         lastUnitButtonsUpdateFrame = -1;
         mapBackgroundCanvas = null;
         sortedUnitsBuffer = [];
-        sortedUnitsDirty = true;
-        particlePool = [];
-        vfxPool = [];
-        floatingTextPool = [];
-        trailPointPool = [];
-        renderNowMs = performance.now();
-        lastRenderNowMs = renderNowMs;
         
         const dash = document.getElementById('dashboard'); 
         dash.innerHTML = '';
@@ -3410,7 +3308,7 @@ const Game = (function() {
                 id: `saved_${idx}_${frameCount}`,
                 y: Number.isFinite(Number(u.y)) ? Number(u.y) : laneYFor(idx),
                 laneY: Number.isFinite(Number(u.laneY ?? u.y)) ? Number(u.laneY ?? u.y) : laneYFor(idx),
-                radius: 12, buffs: [], isPet: false, untargetableTimer: 0, cooldown: 0, state: 'march', lastAttacker: null, facing: u.owner === 0 ? 'right' : 'left', blockTimer: 0, marchTargetY: Number.isFinite(Number(u.marchTargetY)) ? Number(u.marchTargetY) : Number(u.laneY ?? u.y), marchRetargetCooldown: Number(u.marchRetargetCooldown || 0), lastMarchSteerDir: Number(u.lastMarchSteerDir || 0), icemanPassiveTriggered: !!u.icemanPassiveTriggered, chilyProtectionTriggered: !!u.chilyProtectionTriggered, animStartedAtMs: renderNowMs
+                radius: 12, buffs: [], isPet: false, untargetableTimer: 0, cooldown: 0, state: 'march', lastAttacker: null, facing: u.owner === 0 ? 'right' : 'left', blockTimer: 0, marchTargetY: Number.isFinite(Number(u.marchTargetY)) ? Number(u.marchTargetY) : Number(u.laneY ?? u.y), marchRetargetCooldown: Number(u.marchRetargetCooldown || 0), lastMarchSteerDir: Number(u.lastMarchSteerDir || 0), icemanPassiveTriggered: !!u.icemanPassiveTriggered, chilyProtectionTriggered: !!u.chilyProtectionTriggered
             });
             });
             frameCount = state.frameCount || 0;
@@ -3457,44 +3355,12 @@ const Game = (function() {
     }
 
     function spawnImpact(x, y, color, radius = 22) {
-        if (vfx.length >= MAX_VFX) return;
-        const fx = allocVfx();
-        fx.x = x;
-        fx.y = y;
-        fx.owner = null;
-        fx.sprite = null;
-        fx.color = color;
-        fx.radius = 4;
-        fx.growth = radius / 14;
-        fx.life = 18;
-        fx.maxLife = 18;
-        vfx.push(fx);
+        if (vfx.length < MAX_VFX) vfx.push({ x, y, color, radius: 4, growth: radius / 14, life: 18, maxLife: 18 });
     }
     function spawnExplosion(x, y, owner, radius = 20) {
-        if (vfx.length >= MAX_VFX) return;
-        const fx = allocVfx();
-        fx.x = x;
-        fx.y = y;
-        fx.owner = owner;
-        fx.sprite = 'gunner_explosion';
-        fx.radius = radius;
-        fx.life = 36;
-        fx.maxLife = 36;
-        fx.growth = 0;
-        fx.color = '#f97316';
-        vfx.push(fx);
+        if (vfx.length < MAX_VFX) vfx.push({ x, y, owner, sprite: 'gunner_explosion', radius, life: 36, maxLife: 36, growth: 0, color: '#f97316' });
     }
-    function spawnVFX(x, y, text, color) {
-        if (floatingTexts.length >= MAX_TEXTS) return;
-        const fx = allocFloatingText();
-        fx.x = x;
-        fx.y = y;
-        fx.text = text;
-        fx.color = color;
-        fx.life = 60;
-        fx.vy = -1;
-        floatingTexts.push(fx);
-    }
+    function spawnVFX(x, y, text, color) { if (floatingTexts.length < MAX_TEXTS) floatingTexts.push({ x, y, text, color, life: 60, vy: -1 }); }
     function log(msg, color) { const l = document.getElementById('combat-log'); if (!l) return; const e = document.createElement('div'); e.className = 'log-entry'; e.style.color = color; e.textContent = msg; l.prepend(e); }
 
     function updateUnitButtons() {
