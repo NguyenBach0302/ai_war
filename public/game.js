@@ -473,11 +473,11 @@ const Profile = (function() {
                             const inDeck = current.unitNames.includes(unit.name);
                             const selected = selectedRosterUnitName === unit.name;
                             return `
-                                <button type="button" class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
+                                <div class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" role="button" tabindex="0" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
-                                    <span class="profile-roster-add" onclick="event.stopPropagation(); Profile.addUnit(${jsString(unit.name)})">${inDeck ? 'Added' : 'Add'}</span>
-                                </button>
+                                    <button type="button" class="profile-roster-add" onclick="Profile.addRosterUnit(event, ${jsString(unit.name)})" ${inDeck ? 'disabled' : ''}>${inDeck ? 'Added' : 'Add'}</button>
+                                </div>
                             `;
                         }).join('')}
                     </div>
@@ -563,6 +563,12 @@ const Profile = (function() {
         pendingFillSlotIndex = null;
         setStatus('');
         render();
+    }
+
+    function addRosterUnit(event, unitName) {
+        event.preventDefault();
+        event.stopPropagation();
+        addUnit(unitName);
     }
 
     function fillSlot(index) {
@@ -652,7 +658,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, fillSlot, removeUnit, previewUnit, closePreview };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, addRosterUnit, fillSlot, removeUnit, previewUnit, closePreview };
 })();
 
 const UI = (function() {

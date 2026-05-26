@@ -1850,9 +1850,11 @@ canvas {
   font-weight: 900;
   line-height: 1;
   cursor: pointer;
+  font-family: var(--font-ui);
 }
 
-.profile-roster-card.in-deck .profile-roster-add {
+.profile-roster-card.in-deck .profile-roster-add,
+.profile-roster-add:disabled {
   border-color: rgba(16, 185, 129, 0.52);
   background: rgba(16, 185, 129, 0.16);
   color: #bbf7d0;
