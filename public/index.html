@@ -3,44 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
-    <meta name="theme-color" content="#020617">
+    <meta name="theme-color" content="#00A99D">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Age of Agents">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Age of Agents - Multi-Model War Room</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@400;600;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=game-theme-1">
 </head>
 <body>
     <div class="header">
-        <h1>Age of Agents</h1>
-        <div class="subtitle">Multi-Agent Strategic Arena</div>
-        <div id="user-status" style="position: absolute; right: 20px; top: 20px; font-family: var(--font-data); font-size: 12px; color: var(--accent); display: flex; align-items: center; gap: 15px;">
-            <div id="auth-nav-btns" style="display: flex; gap: 10px;">
-                <button class="buy-btn" style="height:30px; padding:0 15px; font-size:10px; background: var(--danger); color: white;" onclick="UI.forceReset()">RESET UI</button>
-                <button class="buy-btn" style="height:30px; padding:0 15px; font-size:10px;" onclick="Auth.showForm('login')">LOGIN</button>
-                <button class="buy-btn" style="height:30px; padding:0 15px; font-size:10px; background: var(--bg-card);" onclick="Auth.showForm('register')">REGISTER</button>
+        <div class="header-brand">
+            <div class="header-mascot" aria-hidden="true"></div>
+            <div class="header-copy">
+                <h1>Age of Agents</h1>
+                <div class="subtitle">Multi-Agent Strategic Arena</div>
             </div>
-            <button id="pause-btn" class="buy-btn" style="height:30px; padding:0 15px; font-size:10px; display:none;" onclick="Game.togglePause()">PAUSE</button>
+        </div>
+        <div id="user-status" class="user-status">
+            <div id="auth-nav-btns" class="user-actions">
+                <button class="buy-btn compact-btn danger-btn" onclick="UI.forceReset()">Reset UI</button>
+                <button class="buy-btn compact-btn" onclick="Auth.showForm('login')">Login</button>
+                <button class="buy-btn compact-btn ghost-btn" onclick="Auth.showForm('register')">Register</button>
+            </div>
+            <button id="pause-btn" class="buy-btn compact-btn" style="display:none;" onclick="Game.togglePause()">Pause</button>
             <div id="user-info-text"></div>
         </div>
     </div>
 
     <!-- UNIT DETAIL POPUP -->
-    <div id="unit-detail-popup" style="display:none; position:fixed; background:rgba(15,23,42,0.95); border:1px solid var(--primary); padding:12px; border-radius:8px; z-index:1000; pointer-events:none; width:200px; backdrop-filter:blur(10px); box-shadow:0 10px 25px rgba(0,0,0,0.5); font-family: var(--font-ui);">
-        <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--border); padding-bottom:5px; margin-bottom:8px;">
-            <strong id="udp-name" style="color:var(--primary); font-size:16px;">Unit</strong>
-            <span id="udp-icon" style="font-size:16px;"></span>
+    <div id="unit-detail-popup" class="unit-detail-popup panel" style="display:none;">
+        <div class="unit-popup-head">
+            <strong id="udp-name">Unit</strong>
+            <span id="udp-icon"></span>
         </div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; font-size:12px; font-family:var(--font-data);">
-            <div style="color:var(--text-muted);">HP:</div><div id="udp-hp" style="color:var(--success);">0</div>
-            <div style="color:var(--text-muted);">Mana:</div><div id="udp-mana" style="color:var(--primary);">0</div>
-            <div style="color:var(--text-muted);">DMG:</div><div id="udp-dmg">0</div>
-            <div style="color:var(--text-muted);">Armor/MRes:</div><div id="udp-def">0/0</div>
-            <div style="color:var(--text-muted);">Crit/Dodge:</div><div id="udp-stats">0/0</div>
-            <div style="color:var(--text-muted);">Lifesteal:</div><div id="udp-ls">0%</div>
+        <div class="unit-popup-grid">
+            <div class="stat-label">HP</div><div id="udp-hp" class="stat-value stat-positive">0</div>
+            <div class="stat-label">Mana</div><div id="udp-mana" class="stat-value stat-teal">0</div>
+            <div class="stat-label">DMG</div><div id="udp-dmg" class="stat-value">0</div>
+            <div class="stat-label">Armor/MRes</div><div id="udp-def" class="stat-value">0/0</div>
+            <div class="stat-label">Crit/Dodge</div><div id="udp-stats" class="stat-value">0/0</div>
+            <div class="stat-label">Lifesteal</div><div id="udp-ls" class="stat-value">0%</div>
         </div>
     </div>
 
@@ -49,7 +54,7 @@
         <div class="auth-shell">
             <div class="auth-card panel">
                 <div class="auth-logo">
-                    <div class="auth-mark"><span>AOA</span></div>
+                    <div class="auth-mark" aria-hidden="true"></div>
                     <div>
                         <div class="auth-brand">Age of Agents</div>
                         <div class="auth-subtitle">Real-Time Strategy · AI-Powered Combat</div>
@@ -136,7 +141,7 @@
             </div>
         </div>
         
-        <div class="log-panel">
+        <div class="log-panel panel">
             <div class="log-title">Tactical Feed</div>
             <div id="combat-log"></div>
         </div>
@@ -144,12 +149,12 @@
 
     <!-- RESUME DIALOG -->
     <div id="resume-overlay" style="display:none;">
-        <div class="setup-box panel" style="max-width: 400px;">
+        <div class="setup-box panel dialog-panel">
             <div class="setup-title">Active Session Found</div>
-            <p style="text-align:center; color:var(--text-muted); margin-bottom:30px;">You have a game in progress. Would you like to continue or start over?</p>
-            <div style="display: flex; gap: 10px; justify-content: center;">
+            <p class="overlay-copy">You have a game in progress. Would you like to continue or start over?</p>
+            <div class="dialog-actions">
                 <button class="buy-btn" onclick="Game.resume()">Continue</button>
-                <button class="buy-btn" onclick="Game.startFresh()" style="background: var(--bg-card);">New Game</button>
+                <button class="buy-btn ghost-btn" onclick="Game.startFresh()">New Game</button>
             </div>
         </div>
     </div>
@@ -218,22 +223,22 @@
 
     <div id="victory-overlay">
         <h2 id="victory-text">VICTORY</h2>
-        <button class="buy-btn" style="width:200px; height:45px;" onclick="location.reload()">Return to Council</button>
+        <button class="buy-btn large-btn" onclick="location.reload()">Return to Council</button>
     </div>
 
     <!-- ADMIN PANEL OVERLAY -->
-    <div id="admin-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 3000; align-items: center; justify-content: center; backdrop-filter: blur(15px);">
-        <div class="setup-box panel" style="max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; padding: 20px;">
-            <div class="setup-title" style="font-size: 14px;">Class Balancer (Admin Only)</div>
-            <div id="admin-unit-list" style="display: flex; flex-direction: column; gap: 15px;">
+    <div id="admin-overlay" style="display:none;">
+        <div class="setup-box panel admin-shell">
+            <div class="setup-title admin-title">Class Balancer</div>
+            <div id="admin-unit-list">
                 <!-- Unit rows -->
             </div>
-            <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: flex-end;">
-                <button class="buy-btn" onclick="document.getElementById('admin-overlay').style.display='none'">Exit Console</button>
+            <div class="dialog-actions dialog-actions-end">
+                <button class="buy-btn ghost-btn" onclick="document.getElementById('admin-overlay').style.display='none'">Exit Console</button>
             </div>
         </div>
     </div>
 
-    <script src="game.js?v=profile-idle-preview-2"></script>
+    <script src="game.js?v=game-theme-1"></script>
 </body>
 </html>

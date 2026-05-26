@@ -171,15 +171,15 @@ const Auth = (function() {
         
         if (authNavBtns) authNavBtns.style.display = 'none';
 
-        const adminBtnHtml = currentUser.role === 0 ? `<button onclick="Admin.show()" class="admin-badge">ADMIN</button>` : '';
-        const adminSetupBtnHtml = currentUser.role === 0 ? `<button class="buy-btn" onclick="Admin.show()">Admin Console</button>` : '';
+        const adminBtnHtml = currentUser.role === 0 ? `<button type="button" onclick="Admin.show()" class="admin-badge">Admin</button>` : '';
+        const adminSetupBtnHtml = currentUser.role === 0 ? `<button class="buy-btn secondary-btn setup-small-btn" onclick="Admin.show()">Admin Console</button>` : '';
 
         info.innerHTML = `
-            <span>Commander <strong>${escapeHtml(currentUser.username)}</strong></span>
+            <span class="status-chip">Commander <strong>${escapeHtml(currentUser.username)}</strong></span>
             ${adminBtnHtml}
-            <span class="status-item">💰 ${currentUser.gold}</span>
-            <span class="status-item">🏆 ${currentUser.wins}W / ${currentUser.losses}L</span>
-            <span class="status-item" style="cursor:pointer; color:var(--danger)" onclick="Auth.logout()">Logout</span>
+            <span class="status-chip">Gold ${currentUser.gold}</span>
+            <span class="status-chip">Record ${currentUser.wins}W / ${currentUser.losses}L</span>
+            <button type="button" class="buy-btn compact-btn ghost-btn" onclick="Auth.logout()">Logout</button>
         `;
 
         if (setupAdminWrap) setupAdminWrap.innerHTML = adminSetupBtnHtml;
@@ -975,77 +975,77 @@ const Online = (function() {
 const Admin = (function() {
     async function show() {
         const list = document.getElementById('admin-unit-list');
-        list.innerHTML = '<p style="color:var(--primary)">Loading unit data...</p>';
+        list.innerHTML = '<p class="admin-message">Loading unit data...</p>';
         document.getElementById('admin-overlay').style.display = 'flex';
         
         const res = await fetch('/api/units');
         if (!res.ok) {
-            list.innerHTML = '<p style="color:var(--danger)">Unable to load unit data.</p>';
+            list.innerHTML = '<p class="admin-message error">Unable to load unit data.</p>';
             return;
         }
         const units = await res.json();
         
         list.innerHTML = units.map(u => `
-            <div class="intel-entry" style="display:flex; flex-direction:column; gap:12px; padding:20px; border:1px solid var(--border); background:rgba(2,6,23,0.6); border-radius:10px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 1px solid var(--border); padding-bottom:10px;">
-                    <strong style="color:var(--primary); font-size:18px;">${escapeHtml(u.icon)} ${escapeHtml(u.name)}</strong>
-                    <button class="buy-btn" style="height:35px; font-size:11px; padding:0 15px;" onclick="Admin.update(${Number(u.id)}, '${escapeHtml(u.name)}')">SAVE</button>
+            <div class="admin-unit-card">
+                <div class="admin-unit-head">
+                    <strong class="admin-unit-title">${escapeHtml(u.icon)} ${escapeHtml(u.name)}</strong>
+                    <button class="buy-btn compact-btn" onclick="Admin.update(${Number(u.id)}, '${escapeHtml(u.name)}')">Save</button>
                 </div>
-                <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;">
+                <div class="admin-unit-grid">
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">HP</label>
+                        <label>HP</label>
                         <input type="number" id="adm-hp-${u.id}" value="${u.hp}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Mana</label>
+                        <label>Mana</label>
                         <input type="number" id="adm-mana-${u.id}" value="${u.mana}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">DMG</label>
+                        <label>DMG</label>
                         <input type="number" id="adm-dmg-${u.id}" value="${u.dmg}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Atk Spd</label>
+                        <label>Atk Spd</label>
                         <input type="number" step="0.1" id="adm-atkspeed-${u.id}" value="${u.atk_speed}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Range</label>
+                        <label>Range</label>
                         <input type="number" id="adm-range-${u.id}" value="${u.range}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Move Spd</label>
+                        <label>Move Spd</label>
                         <input type="number" step="0.1" id="adm-movespeed-${u.id}" value="${u.move_speed}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Armor</label>
+                        <label>Armor</label>
                         <input type="number" id="adm-armor-${u.id}" value="${u.armor}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">M-Res</label>
+                        <label>M-Res</label>
                         <input type="number" id="adm-mres-${u.id}" value="${u.mres}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Crit %</label>
+                        <label>Crit %</label>
                         <input type="number" step="0.01" id="adm-crit-${u.id}" value="${u.crit_chance}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">P-Pen %</label>
+                        <label>P-Pen %</label>
                         <input type="number" step="0.01" id="adm-ppen-${u.id}" value="${u.phys_pen}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">M-Pen %</label>
+                        <label>M-Pen %</label>
                         <input type="number" step="0.01" id="adm-mpen-${u.id}" value="${u.magic_pen}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Dodge %</label>
+                        <label>Dodge %</label>
                         <input type="number" step="0.01" id="adm-dodge-${u.id}" value="${u.dodge ?? 0}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Lifesteal %</label>
+                        <label>Lifesteal %</label>
                         <input type="number" step="0.01" id="adm-lifesteal-${u.id}" value="${u.lifesteal ?? 0}">
                     </div>
                     <div class="auth-input-group">
-                        <label style="font-size:9px;">Cost</label>
+                        <label>Cost</label>
                         <input type="number" id="adm-cost-${u.id}" value="${u.cost}">
                     </div>
                 </div>
@@ -3117,7 +3117,7 @@ const Game = (function() {
         ctx.strokeRect(x + 116, y + 28, 36, 114);
 
         ctx.fillStyle = p.eliminated ? '#3b342b' : '#fff4c1';
-        ctx.font = '700 13px "Rajdhani"';
+        ctx.font = '700 13px "Fredoka"';
         ctx.textAlign = 'center';
         ctx.fillText(p.name.slice(0, 3).toUpperCase(), p.base.x, p.base.y + 80);
 
@@ -3678,12 +3678,12 @@ const Game = (function() {
         });
         for (let i = floatingTexts.length - 1; i >= 0; i--) {
             let t = floatingTexts[i];
-            ctx.globalAlpha = t.life / 60; ctx.fillStyle = t.color; ctx.font = 'bold 14px "Rajdhani"'; ctx.fillText(t.text, t.x, t.y);
+            ctx.globalAlpha = t.life / 60; ctx.fillStyle = t.color; ctx.font = 'bold 14px "Fredoka"'; ctx.fillText(t.text, t.x, t.y);
             t.y += t.vy; t.life--;
             if (t.life <= 0) floatingTexts.splice(i, 1);
         }
         ctx.globalAlpha = 1;
-        if (paused) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,MAP_W,MAP_H); ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Rajdhani'; ctx.fillText("GAME PAUSED", MAP_W/2, MAP_H/2); }
+        if (paused) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,MAP_W,MAP_H); ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Fredoka'; ctx.fillText("GAME PAUSED", MAP_W/2, MAP_H/2); }
     }
 
     function loop(now = performance.now()) {
