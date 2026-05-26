@@ -1711,6 +1711,7 @@ canvas {
   border-style: solid;
   border-color: rgba(251, 191, 36, 0.56);
   background: linear-gradient(180deg, rgba(30, 41, 59, 0.72), rgba(2, 6, 23, 0.68));
+  cursor: pointer;
 }
 
 .profile-deck-slot.empty {
@@ -1936,7 +1937,8 @@ button.profile-deck-slot.empty:hover {
   box-shadow: 0 0 14px rgba(251, 191, 36, 0.14);
 }
 
-button.profile-deck-slot.empty.pending {
+button.profile-deck-slot.empty.pending,
+.profile-deck-slot.filled.pending {
   border-color: rgba(251, 191, 36, 0.9);
   background: rgba(69, 43, 8, 0.42);
   box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.2), 0 0 18px rgba(251, 191, 36, 0.22);

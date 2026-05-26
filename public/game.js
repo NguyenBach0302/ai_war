@@ -447,9 +447,9 @@ const Profile = (function() {
                             const unitName = current.unitNames[index];
                             const unit = unitName ? ownedMap.get(unitName) : null;
                             return unit ? `
-                                <div class="profile-deck-slot filled" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                <div class="profile-deck-slot filled ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.selectSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
-                                    <button type="button" onclick="Profile.removeUnit(${index})">x</button>
+                                    <button type="button" onclick="event.stopPropagation(); Profile.removeUnit(${index})">x</button>
                                 </div>
                             ` : `
                                 <button type="button" class="profile-deck-slot empty ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.fillSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
@@ -541,6 +541,7 @@ const Profile = (function() {
         if (!Number.isInteger(replaceIndex)) {
             const emptyIndex = Array.from({ length: 5 }).findIndex((_, index) => !loadout.unitNames[index]);
             if (emptyIndex >= 0) replaceIndex = emptyIndex;
+            else if (Number.isInteger(pendingFillSlotIndex)) replaceIndex = pendingFillSlotIndex;
         }
         if (Number.isInteger(replaceIndex)) {
             loadout.unitNames = loadout.unitNames.filter(name => name !== unitName);
@@ -554,7 +555,14 @@ const Profile = (function() {
             return;
         }
         if (loadout.unitNames.length >= 5) {
-            setStatus('This deck already has 5 units.');
+            loadout.unitNames = loadout.unitNames.filter(name => name !== unitName);
+            loadout.unitNames[4] = unitName;
+            loadout.unitNames = loadout.unitNames.filter(Boolean).slice(0, 5);
+            selectedPreviewUnitName = null;
+            selectedRosterUnitName = null;
+            pendingFillSlotIndex = null;
+            setStatus('Deck was full, replaced the last slot.');
+            render();
             return;
         }
         loadout.unitNames.push(unitName);
@@ -579,6 +587,12 @@ const Profile = (function() {
             return;
         }
         addUnit(selectedRosterUnitName, index);
+    }
+
+    function selectSlot(index) {
+        pendingFillSlotIndex = index;
+        setStatus('Choose a unit from the roster to replace this slot.');
+        render();
     }
 
     function dropUnit(event, replaceIndex = null) {
@@ -658,7 +672,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, addRosterUnit, fillSlot, removeUnit, previewUnit, closePreview };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, addRosterUnit, fillSlot, selectSlot, removeUnit, previewUnit, closePreview };
 })();
 
 const UI = (function() {
