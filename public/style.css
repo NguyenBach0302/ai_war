@@ -1015,10 +1015,12 @@ canvas {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .setup-row select {
   min-width: 180px;
+  max-width: 100%;
 }
 
 .setup-grid-config {
@@ -1161,10 +1163,24 @@ canvas {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+  min-width: 0;
+}
+
+.profile-loadout-head > div,
+.profile-roster-head > div {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .profile-loadout-head input {
   margin-top: 10px;
+}
+
+.profile-deck-listbox,
+.profile-loadout-head input,
+.setup-row select {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .profile-deck-kicker {
@@ -1701,7 +1717,14 @@ canvas {
   }
 
   .setup-row {
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .setup-row select {
+    width: 100%;
+    min-width: 0;
   }
 }
 
@@ -1761,6 +1784,26 @@ canvas {
   .profile-stats,
   .profile-preview-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .match-strip,
+  .profile-loadout-head {
+    min-width: 0;
+  }
+
+  .profile-loadout-head > div,
+  .setup-row,
+  .match-meta {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .profile-deck-listbox,
+  .profile-loadout-head input,
+  .setup-row select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 
   .profile-deck-slots {
