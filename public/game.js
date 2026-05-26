@@ -271,6 +271,21 @@ const Profile = (function() {
         return Game.getClassIdleSrc(unitName);
     }
 
+    function getIdleFrameCount(unitName) {
+        const idleFrameCounts = {
+            Assasin: 6,
+            Bowman: 9,
+            ChilyGirl: 7,
+            Guard: 4,
+            Gunner: 7,
+            Healer: 8,
+            Iceman: 8,
+            Mage: 7,
+            Sniper: 7
+        };
+        return idleFrameCounts[unitName] || 1;
+    }
+
     function renderPreview(unit) {
         if (!unit) {
             return `
@@ -283,7 +298,12 @@ const Profile = (function() {
         return `
             <div class="profile-preview-card">
                 <div class="profile-preview-stage">
-                    <img src="${getIdleSrc(unit.name)}" alt="${escapeHtml(unit.name)} idle">
+                    <div
+                        class="profile-preview-sprite"
+                        role="img"
+                        aria-label="${escapeHtml(unit.name)} idle"
+                        style="--idle-frame-count:${getIdleFrameCount(unit.name)}; --idle-sheet-width:${getIdleFrameCount(unit.name) * 128}px; background-image:url('${getIdleSrc(unit.name)}');"
+                    ></div>
                 </div>
                 <div class="profile-preview-info">
                     <div class="profile-deck-kicker">${escapeHtml(unit.role || 'Unit')}</div>

@@ -2095,15 +2095,28 @@ button.profile-deck-slot.empty.pending,
   filter: blur(2px);
 }
 
-.profile-preview-stage img {
+.profile-preview-sprite {
   position: relative;
   z-index: 1;
-  width: auto;
-  height: 132px;
-  object-fit: contain;
+  width: 128px;
+  height: 128px;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: var(--idle-sheet-width, 128px) 128px;
   image-rendering: pixelated;
-  animation: profile-idle-bob 1.25s steps(4, end) infinite;
+  animation:
+    profile-idle-frames 1.25s steps(var(--idle-frame-count, 1), end) infinite,
+    profile-idle-bob 1.25s ease-in-out infinite;
   filter: drop-shadow(0 16px 14px rgba(0,0,0,0.5));
+}
+
+@keyframes profile-idle-frames {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(-128px * var(--idle-frame-count, 1)) 0;
+  }
 }
 
 .profile-preview-info {
