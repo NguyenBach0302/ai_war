@@ -200,6 +200,10 @@ const Auth = (function() {
 })();
 
 const Profile = (function() {
+    const LOADOUT_UNIT_ALIASES = {
+        Hunter: 'Iceman',
+        Gunner: 'Gunman'
+    };
     let editingSlot = 1;
     let draftLoadouts = null;
     let activeLoadoutSlotDraft = 1;
@@ -225,15 +229,22 @@ const Profile = (function() {
         return new Map(getOwnedUnits().map(unit => [unit.name, unit]));
     }
 
+    function normalizeDraftUnitNames(unitNames, ownedMap) {
+        return [...new Set((Array.isArray(unitNames) ? unitNames : [])
+            .map(name => LOADOUT_UNIT_ALIASES[String(name)] || String(name))
+            .filter(name => ownedMap.has(name)))].slice(0, 5);
+    }
+
     function buildDraftLoadouts() {
         const user = Auth.getUser();
         const saved = getLoadouts();
+        const ownedMap = getOwnedUnitMap();
         draftLoadouts = [1, 2, 3].map(slot => {
             const loadout = saved.find(item => Number(item.slot) === slot) || {};
             return {
                 slot,
                 name: loadout.name || `Deck ${slot}`,
-                unitNames: Array.isArray(loadout.unitNames) ? loadout.unitNames.slice(0, 5) : []
+                unitNames: normalizeDraftUnitNames(loadout.unitNames, ownedMap)
             };
         });
         activeLoadoutSlotDraft = Number(user?.activeLoadoutSlot || 1);
