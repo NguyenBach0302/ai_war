@@ -291,7 +291,7 @@ const Profile = (function() {
         `;
     }
 
-    function renderPreviewPopup(unit) {
+    function renderPreviewPopup(unit, ownedMap) {
         if (!unit) return '';
         const current = getDraft(editingSlot);
         if (selectedRosterUnitName && !ownedMap.has(selectedRosterUnitName)) selectedRosterUnitName = null;
@@ -422,7 +422,7 @@ const Profile = (function() {
         container.innerHTML = `
             <div class="profile-deck-workbench compact">
                 <div class="profile-loadout-card profile-active-deck" data-loadout-slot="${editingSlot}">
-                    ${renderPreviewPopup(previewUnit)}
+                    ${renderPreviewPopup(previewUnit, ownedMap)}
                     <div class="profile-loadout-head">
                         <div>
                             <div class="profile-deck-kicker">Deck Selection</div>
