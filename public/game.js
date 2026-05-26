@@ -476,6 +476,7 @@ const Profile = (function() {
                                 <button type="button" class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" draggable="true" onclick="Profile.previewUnit(${jsString(unit.name)})" ondblclick="Profile.addUnit(${jsString(unit.name)})" ondragstart="Profile.dragUnit(event, ${jsString(unit.name)})">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
+                                    <span class="profile-roster-add" onclick="event.stopPropagation(); Profile.addUnit(${jsString(unit.name)})">${inDeck ? 'Added' : 'Add'}</span>
                                 </button>
                             `;
                         }).join('')}

@@ -1836,6 +1836,29 @@ canvas {
   white-space: nowrap;
 }
 
+.profile-roster-add {
+  width: 100%;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(56, 189, 248, 0.48);
+  border-radius: 4px;
+  background: rgba(14, 165, 233, 0.16);
+  color: #bae6fd;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.profile-roster-card.in-deck .profile-roster-add {
+  border-color: rgba(16, 185, 129, 0.52);
+  background: rgba(16, 185, 129, 0.16);
+  color: #bbf7d0;
+  cursor: default;
+}
+
 .profile-deck-workbench.compact {
   grid-template-columns: 1fr;
 }
