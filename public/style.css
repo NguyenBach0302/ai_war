@@ -1759,10 +1759,12 @@ canvas {
     max-height: none;
   }
 
+  #setup-overlay,
   #profile-overlay {
     overflow: hidden;
   }
 
+  .setup-menu,
   .profile-panel {
     max-height: calc(var(--app-height) - 24px);
     overflow-y: auto;
