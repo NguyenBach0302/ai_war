@@ -16,7 +16,7 @@ const LOADOUT_UNIT_ALIASES = new Map([
 
 const ICEMAN_UNIT = {
     name: 'Iceman',
-    icon: 'Ã¢Ââ€žÃ¯Â¸Â',
+    icon: 'ICE',
     hp: 100,
     mana: 90,
     move_speed: 1.2,
@@ -38,7 +38,7 @@ const ICEMAN_UNIT = {
 
 const CHILYGIRL_UNIT = {
     name: 'ChilyGirl',
-    icon: 'Ã°Å¸Å’Â¶Ã¯Â¸Â',
+    icon: 'CHILI',
     hp: 85,
     mana: 100,
     move_speed: 1.15,

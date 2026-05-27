@@ -25,6 +25,7 @@ function createUnitService(pool) {
     }
 
     async function ensureGameUnits() {
+        await pool.query('ALTER TABLE units MODIFY icon VARCHAR(64) NOT NULL');
         await upsertUnit(ICEMAN_UNIT);
         await upsertUnit(CHILYGIRL_UNIT);
         await pool.query('DELETE FROM units WHERE name = ?', ['Hunter']);
