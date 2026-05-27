@@ -210,6 +210,8 @@ const Profile = (function() {
     let selectedPreviewUnitName = null;
     let lastTapUnitName = null;
     let lastTapAt = 0;
+    let lastTapSlotIndex = null;
+    let lastTapSlotAt = 0;
     let selectedRosterUnitName = null;
     let pendingFillSlotIndex = null;
 
@@ -478,9 +480,8 @@ const Profile = (function() {
                             const unitName = current.unitNames[index];
                             const unit = unitName ? ownedMap.get(unitName) : null;
                             return unit ? `
-                                <div class="profile-deck-slot filled ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.selectSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
+                                <div class="profile-deck-slot filled ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.selectSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})" title="Double click to remove">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
-                                    <button type="button" onclick="event.stopPropagation(); Profile.removeUnit(${index})">x</button>
                                 </div>
                             ` : `
                                 <button type="button" class="profile-deck-slot empty ${pendingFillSlotIndex === index ? 'pending' : ''}" onclick="Profile.fillSlot(${index})" ondragover="Profile.allowDrop(event)" ondrop="Profile.dropUnit(event, ${index})">
@@ -504,10 +505,9 @@ const Profile = (function() {
                             const inDeck = current.unitNames.includes(unit.name);
                             const selected = selectedRosterUnitName === unit.name;
                             return `
-                                <div class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" role="button" tabindex="0" draggable="true" onclick='Profile.previewUnit(${jsString(unit.name)})' ondblclick='Profile.addUnit(${jsString(unit.name)})' ondragstart='Profile.dragUnit(event, ${jsString(unit.name)})'>
+                                <div class="profile-roster-card ${inDeck ? 'in-deck' : ''} ${selected ? 'selected' : ''}" role="button" tabindex="0" draggable="true" onclick='Profile.previewUnit(${jsString(unit.name)})' ondblclick='Profile.addUnit(${jsString(unit.name)})' ondragstart='Profile.dragUnit(event, ${jsString(unit.name)})' title="Double click to add">
                                     <span class="profile-unit-art"><img src="${Game.getClassIconSrc(unit.name)}" alt="${escapeHtml(unit.name)}"></span>
                                     <span class="profile-roster-name">${escapeHtml(unit.name)}</span>
-                                    <button type="button" class="profile-roster-add" onclick='Profile.addRosterUnit(event, ${jsString(unit.name)})' ${inDeck ? 'disabled' : ''}>${inDeck ? 'Added' : 'Add'}</button>
                                 </div>
                             `;
                         }).join('')}
@@ -604,12 +604,6 @@ const Profile = (function() {
         render();
     }
 
-    function addRosterUnit(event, unitName) {
-        event.preventDefault();
-        event.stopPropagation();
-        addUnit(unitName);
-    }
-
     function fillSlot(index) {
         if (!selectedRosterUnitName) {
             pendingFillSlotIndex = index;
@@ -621,6 +615,15 @@ const Profile = (function() {
     }
 
     function selectSlot(index) {
+        const now = performance.now();
+        if (lastTapSlotIndex === index && now - lastTapSlotAt < 420) {
+            lastTapSlotIndex = null;
+            lastTapSlotAt = 0;
+            removeUnit(index);
+            return;
+        }
+        lastTapSlotIndex = index;
+        lastTapSlotAt = now;
         pendingFillSlotIndex = index;
         setStatus('Choose a unit from the roster to replace this slot.');
         render();
@@ -636,6 +639,9 @@ const Profile = (function() {
         syncDeckName();
         const loadout = getDraft(editingSlot);
         loadout.unitNames.splice(index, 1);
+        lastTapSlotIndex = null;
+        lastTapSlotAt = 0;
+        pendingFillSlotIndex = null;
         setStatus('');
         render();
     }
@@ -703,7 +709,7 @@ const Profile = (function() {
         }
     }
 
-    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, addRosterUnit, fillSlot, selectSlot, removeUnit, previewUnit, closePreview };
+    return { show, hide, save, render, selectDeck, setActiveDeck, syncDeckName, allowDrop, dragUnit, dropUnit, addUnit, fillSlot, selectSlot, removeUnit, previewUnit, closePreview };
 })();
 
 const UI = (function() {

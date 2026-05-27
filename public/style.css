@@ -850,7 +850,6 @@ canvas {
 
 .buy-btn,
 .admin-badge,
-.profile-roster-add,
 .profile-add-btn,
 .profile-popover-close {
   display: inline-flex;
@@ -872,7 +871,6 @@ canvas {
 
 .buy-btn:hover,
 .admin-badge:hover,
-.profile-roster-add:hover:not(:disabled),
 .profile-add-btn:hover:not(:disabled),
 .profile-popover-close:hover {
   transform: translateY(-1px);
@@ -1274,18 +1272,6 @@ canvas {
   box-shadow: 0 0 0 4px rgba(245, 230, 200, 0.08);
 }
 
-.profile-deck-slot button {
-  min-height: 30px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 123, 112, 0.14);
-  color: #ffe8e5;
-  font-size: 0.72rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
 .profile-roster-head strong {
   display: block;
   margin-top: 4px;
@@ -1334,14 +1320,6 @@ canvas {
   background: linear-gradient(180deg, rgba(42, 62, 102, 1), rgba(27, 42, 74, 1));
 }
 
-.profile-roster-add {
-  width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
-  font-size: 0.74rem;
-}
-
-.profile-roster-add:disabled,
 .profile-add-btn:disabled {
   opacity: 0.48;
   cursor: not-allowed;
@@ -1828,12 +1806,6 @@ canvas {
     height: 30px;
   }
 
-  .profile-deck-slot button {
-    min-height: 20px;
-    padding: 2px 6px;
-    font-size: 0.55rem;
-  }
-
   .profile-deck-slot.empty span {
     font-size: 1rem;
     line-height: 1;
@@ -1866,13 +1838,6 @@ canvas {
     font-size: 0.56rem;
     line-height: 1.1;
     word-break: break-word;
-  }
-
-  .profile-roster-add {
-    min-height: 22px;
-    padding: 2px 4px;
-    font-size: 0.5rem;
-    border-width: 1px;
   }
 
   .admin-unit-grid {
