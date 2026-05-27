@@ -1986,7 +1986,7 @@ canvas {
   .camera-controls {
     position: fixed;
     left: 50%;
-    top: calc(var(--header-height) + var(--dashboard-height) + 6px);
+    top: calc(var(--header-height) + var(--dashboard-height) - 6px);
     bottom: auto;
     transform: translateX(-50%);
     gap: 4px;
