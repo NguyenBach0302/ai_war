@@ -1790,8 +1790,10 @@ canvas {
   }
 
   .profile-deck-slot {
-    min-height: 72px;
-    padding: 6px 4px;
+    aspect-ratio: 1 / 1;
+    width: 100%;
+    min-height: 0;
+    padding: 4px;
     gap: 4px;
   }
 
@@ -1842,6 +1844,16 @@ canvas {
 
   .admin-unit-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) and (orientation: portrait) {
+  .profile-roster-card {
+    padding: 6px 3px;
+  }
+
+  .profile-roster-name {
+    display: none;
   }
 }
 
