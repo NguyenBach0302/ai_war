@@ -451,10 +451,11 @@ canvas {
 }
 
 .camera-controls {
-  position: absolute;
-  top: 16px;
+  position: fixed;
+  top: auto;
+  bottom: max(16px, var(--safe-bottom));
   left: 16px;
-  z-index: 70;
+  z-index: 120;
   display: flex;
   gap: 8px;
   padding: 10px;
@@ -533,16 +534,17 @@ canvas {
 }
 
 #deployment-hud {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 60;
+  position: fixed;
+  bottom: max(16px, var(--safe-bottom));
+  left: auto;
+  right: 16px;
+  transform: none;
+  z-index: 110;
   display: flex;
   flex-direction: column;
   gap: 10px;
   align-items: center;
-  max-width: min(820px, calc(100% - 32px));
+  max-width: min(620px, calc(100vw - 540px));
   padding: 12px;
 }
 

@@ -3849,37 +3849,29 @@ const Game = (function() {
         const stats = document.getElementById('connection-stats');
         const hud = document.getElementById('deployment-hud');
         if (!wrap) return;
+        [cameraControls, hud].forEach(el => {
+            if (!el) return;
+            el.style.left = '';
+            el.style.top = '';
+            el.style.right = '';
+            el.style.bottom = '';
+        });
         if (window.matchMedia('(max-width: 950px), (pointer: coarse) and (max-height: 520px)').matches) {
-            [cameraControls, stats, hud].forEach(el => {
-                if (!el) return;
-                el.style.left = '';
-                el.style.top = '';
-                el.style.right = '';
-                el.style.bottom = '';
-            });
+            if (stats) {
+                stats.style.left = '';
+                stats.style.top = '';
+                stats.style.right = '';
+                stats.style.bottom = '';
+            }
             return;
         }
 
         const inset = 12;
-        if (cameraControls) {
-            const controlsHeight = cameraControls.offsetHeight || 0;
-            cameraControls.style.left = `${wrap.scrollLeft + inset}px`;
-            cameraControls.style.top = `${wrap.scrollTop + wrap.clientHeight - controlsHeight - inset}px`;
-            cameraControls.style.bottom = 'auto';
-        }
-
         if (stats) {
             const statsWidth = stats.offsetWidth || 110;
             stats.style.left = `${wrap.scrollLeft + wrap.clientWidth - statsWidth - inset}px`;
             stats.style.top = `${wrap.scrollTop + inset}px`;
             stats.style.right = 'auto';
-        }
-
-        if (hud) {
-            const hudHeight = hud.offsetHeight || 0;
-            hud.style.left = `${wrap.scrollLeft + wrap.clientWidth / 2}px`;
-            hud.style.top = `${wrap.scrollTop + wrap.clientHeight - hudHeight - 15}px`;
-            hud.style.bottom = 'auto';
         }
     }
 
