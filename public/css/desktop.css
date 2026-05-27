@@ -1,0 +1,47 @@
+﻿@media (max-width: 1180px) {
+  .intel-panel,
+  .log-panel {
+    width: 260px;
+  }
+
+  .profile-deck-workbench {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 980px) {
+  .game-container {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .intel-panel,
+  .log-panel {
+    width: 100%;
+    min-height: 180px;
+  }
+
+  .map-wrap {
+    min-height: 440px;
+  }
+
+  .match-strip,
+  .setup-header,
+  .profile-loadout-head,
+  .profile-roster-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .setup-row {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .setup-row select {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
