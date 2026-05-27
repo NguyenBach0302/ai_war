@@ -3953,7 +3953,7 @@ const Game = (function() {
             const localBotName = !isHuman && providerEl?.value === 'hell' ? 'Hell Bot' : 'Enemy Agent';
             if (savedPlayer) players.push({ ...savedPlayer, id: i, color: COLORS[i], isHuman, base: getBaseForPlayer(i) });
             else players.push({ id: i, name: onlinePlayerName || (isHuman ? Auth.getUser().username : localBotName), isHuman, color: COLORS[i], gold: 150, hp: 2500, maxHp: 2500, base: getBaseForPlayer(i), eliminated: false });
-            dash.innerHTML += `<div class="player-card" style="border-top:2px solid ${COLORS[i].main}"><div class="card-header"><span class="player-name">${escapeHtml(players[i].name)}</span><span class="resource-count" id="gold-${i}">$ ${Math.floor(players[i].gold)}</span></div><div class="hp-bg"><div class="hp-bar" id="hp-${i}" style="width:${(players[i].hp/players[i].maxHp)*100}%"></div></div></div>`;
+            dash.innerHTML += `<div class="player-card" style="border-top:5px solid ${COLORS[i].main}"><div class="card-header"><span class="player-name">${escapeHtml(players[i].name)}</span><span class="resource-count" id="gold-${i}">$ ${Math.floor(players[i].gold)}</span></div><div class="hp-bg"><div class="hp-bar" id="hp-${i}" style="width:${(players[i].hp/players[i].maxHp)*100}%"></div></div></div>`;
         }
 
         if (state?.units) {
