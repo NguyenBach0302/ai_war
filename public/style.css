@@ -1759,6 +1759,16 @@ canvas {
     max-height: none;
   }
 
+  #profile-overlay {
+    overflow: hidden;
+  }
+
+  .profile-panel {
+    max-height: calc(var(--app-height) - 24px);
+    overflow-y: auto;
+    padding: 16px;
+  }
+
   .profile-stats,
   .profile-preview-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
