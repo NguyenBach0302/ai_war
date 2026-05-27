@@ -3862,8 +3862,10 @@ const Game = (function() {
 
         const inset = 12;
         if (cameraControls) {
+            const controlsHeight = cameraControls.offsetHeight || 0;
             cameraControls.style.left = `${wrap.scrollLeft + inset}px`;
-            cameraControls.style.top = `${wrap.scrollTop + inset}px`;
+            cameraControls.style.top = `${wrap.scrollTop + wrap.clientHeight - controlsHeight - inset}px`;
+            cameraControls.style.bottom = 'auto';
         }
 
         if (stats) {

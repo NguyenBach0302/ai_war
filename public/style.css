@@ -1983,9 +1983,10 @@ canvas {
 
   .camera-controls {
     position: fixed;
-    left: 8px;
-    bottom: max(8px, var(--safe-bottom));
-    top: auto;
+    left: 50%;
+    top: calc(var(--header-height) + var(--dashboard-height) + 6px);
+    bottom: auto;
+    transform: translateX(-50%);
     gap: 4px;
     padding: 6px;
     border-radius: 18px;
@@ -2016,12 +2017,12 @@ canvas {
 
   #deployment-hud {
     position: fixed;
-    left: auto !important;
-    right: 8px;
-    bottom: max(8px, var(--safe-bottom));
+    left: 50% !important;
+    right: auto;
+    bottom: max(20px, calc(var(--safe-bottom) + 20px));
     top: auto !important;
-    transform: none !important;
-    max-width: calc(100vw - 160px);
+    transform: translateX(-50%) !important;
+    max-width: calc(100vw - 16px);
     padding: 8px;
   }
 
@@ -2031,7 +2032,7 @@ canvas {
 
   .unit-grid {
     gap: 6px;
-    max-width: calc(100vw - 176px);
+    max-width: calc(100vw - 32px);
   }
 
   .unit-btn {
