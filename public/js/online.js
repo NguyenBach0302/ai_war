@@ -57,6 +57,8 @@
     function showRoomLobby(nextRoomState, message = '') {
         roomState = nextRoomState || roomState || null;
         if (roomState?.roomCode) currentRoomCode = roomState.roomCode;
+        const overlay = document.getElementById('setup-overlay');
+        if (overlay) overlay.style.display = 'flex';
         setLobbyVisible(true);
         renderRoomState();
         if (message) setRoomStatus(message);

@@ -169,6 +169,40 @@ class MatchService {
         });
     }
 
+    removePlayerFromCustomRoom(match, userId, reason = 'left') {
+        if (!match || match.matchType !== 'custom' || match.started || match.ended) return false;
+        const playerIndex = match.players.findIndex(player => player.id === userId);
+        if (playerIndex < 0) return false;
+
+        const player = match.players[playerIndex];
+        const client = match.clients.get(userId);
+        if (client) {
+            client.write(`event: match-ended\ndata: ${JSON.stringify({ reason, userId })}\n\n`);
+            client.end();
+            match.clients.delete(userId);
+        }
+        const socket = match.wsClients?.get(userId);
+        if (socket) {
+            try {
+                socket.send(JSON.stringify({ event: 'match-ended', payload: { reason, userId } }));
+                socket.close(1000, 'Left room');
+            } catch (err) {
+                // Ignore close failures during room cleanup.
+            }
+            match.wsClients.delete(userId);
+        }
+
+        match.players.splice(playerIndex, 1);
+
+        if (match.players.length === 0) {
+            this.removeMatch(match.id);
+            return true;
+        }
+
+        this.broadcastRoomState(match, `${player.username} left the room.`);
+        return true;
+    }
+
     getMatchFrame(match) {
         if (!match.startsAt) return 0;
         return Math.max(0, Math.floor((Date.now() - match.startsAt) / 1000 * this.MATCH_FPS));
@@ -1516,6 +1550,10 @@ class MatchService {
     leaveMatch(matchId, userId) {
         const match = this.matches.get(String(matchId || ''));
         if (match && match.players.some(player => player.id === userId)) {
+            if (match.matchType === 'custom' && !match.started) {
+                this.removePlayerFromCustomRoom(match, userId, 'left');
+                return { ok: true };
+            }
             match.ended = true;
             this.sendMatchEvent(match, 'match-ended', { reason: 'left', userId });
             setTimeout(() => this.removeMatch(match.id), 1000);
@@ -1568,6 +1606,10 @@ class MatchService {
             }
 
             if (message.type === 'leave') {
+                if (match.matchType === 'custom' && !match.started) {
+                    this.removePlayerFromCustomRoom(match, decoded.id, 'left');
+                    return;
+                }
                 match.ended = true;
                 this.sendMatchEvent(match, 'match-ended', { reason: 'left', userId: decoded.id });
                 setTimeout(() => this.removeMatch(match.id), 1000);
