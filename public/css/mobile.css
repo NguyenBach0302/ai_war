@@ -88,6 +88,12 @@
     max-width: 100%;
   }
 
+  .profile-active {
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 0.72rem;
+  }
+
   .profile-deck-slots {
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 6px;
