@@ -143,6 +143,32 @@ class MatchService {
         });
     }
 
+    getRoomState(match, viewerId = null, message = '') {
+        const hostId = match?.players?.[0]?.id ?? null;
+        return {
+            matchId: match.id,
+            matchType: match.matchType || 'custom',
+            roomCode: match.roomCode || null,
+            started: !!match.started,
+            players: (match.players || []).map(player => ({
+                id: player.id,
+                username: player.username,
+                isHost: player.id === hostId
+            })),
+            viewerId,
+            isHost: viewerId !== null && viewerId === hostId,
+            canStart: viewerId !== null && viewerId === hostId && (match.players?.length || 0) >= 2 && !match.started && !match.ended,
+            message
+        };
+    }
+
+    broadcastRoomState(match, message = '') {
+        if (!match || match.matchType !== 'custom' || match.started || match.ended) return;
+        match.players.forEach(player => {
+            this.sendMatchEventToPlayer(match, player.id, 'room-state', this.getRoomState(match, player.id, message));
+        });
+    }
+
     getMatchFrame(match) {
         if (!match.startsAt) return 0;
         return Math.max(0, Math.floor((Date.now() - match.startsAt) / 1000 * this.MATCH_FPS));
@@ -1298,18 +1324,26 @@ class MatchService {
 
     async createCustomRoom(user) {
         const existingMatch = this.findActiveMatchForUser(user.id, 'custom');
-        if (existingMatch) return { status: existingMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(existingMatch, user.id) };
+        if (existingMatch) return {
+            status: existingMatch.started ? 'started' : 'waiting',
+            ...this.getMatchPayload(existingMatch, user.id),
+            roomState: this.getRoomState(existingMatch, user.id)
+        };
 
         let roomCode = this.makeRoomCode();
         while (this.findCustomRoomByCode(roomCode)) roomCode = this.makeRoomCode();
         const match = await this.createMatchRecord(user, 'custom', roomCode);
         this.matches.set(match.id, match);
-        return { status: 'waiting', ...this.getMatchPayload(match, user.id) };
+        return { status: 'waiting', ...this.getMatchPayload(match, user.id), roomState: this.getRoomState(match, user.id) };
     }
 
     async joinCustomRoom(roomCode, user) {
         const existingMatch = this.findActiveMatchForUser(user.id, 'custom');
-        if (existingMatch) return { status: existingMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(existingMatch, user.id) };
+        if (existingMatch) return {
+            status: existingMatch.started ? 'started' : 'waiting',
+            ...this.getMatchPayload(existingMatch, user.id),
+            roomState: this.getRoomState(existingMatch, user.id)
+        };
 
         if (!String(roomCode || '').trim()) {
             return { message: 'Custom room ID is required', status: 400 };
@@ -1322,15 +1356,38 @@ class MatchService {
             return { message: 'Custom room is already full', status: 409 };
         }
         if (targetMatch.players[0].id === user.id) {
-            return { status: targetMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(targetMatch, user.id) };
+            return {
+                status: targetMatch.started ? 'started' : 'waiting',
+                ...this.getMatchPayload(targetMatch, user.id),
+                roomState: this.getRoomState(targetMatch, user.id)
+            };
         }
 
         targetMatch.players.push(user);
-        targetMatch.started = true;
-        targetMatch.startsAt = Date.now() + this.MATCH_START_DELAY_MS;
-        this.startServerSimulation(targetMatch);
-        this.sendMatchEvent(targetMatch, 'match-start', { ...this.getMatchPayload(targetMatch, targetMatch.players[0].id), playerIndex: 0 });
-        return { status: 'started', ...this.getMatchPayload(targetMatch, user.id) };
+        this.broadcastRoomState(targetMatch, 'Room is full. Host can start now.');
+        return { status: 'waiting', ...this.getMatchPayload(targetMatch, user.id), roomState: this.getRoomState(targetMatch, user.id, 'Room is full. Host can start now.') };
+    }
+
+    startCustomRoom(matchId, userId) {
+        const match = this.matches.get(String(matchId || ''));
+        if (!match || match.matchType !== 'custom' || match.ended) {
+            return { ok: false, status: 404, message: 'Custom room not found' };
+        }
+        if (match.started) {
+            return { ok: false, status: 409, message: 'Custom room already started' };
+        }
+        if (!match.players.length || match.players[0].id !== userId) {
+            return { ok: false, status: 403, message: 'Only the host can start this room' };
+        }
+        if (match.players.length < 2) {
+            return { ok: false, status: 409, message: 'Need 2 players to start' };
+        }
+
+        match.started = true;
+        match.startsAt = Date.now() + this.MATCH_START_DELAY_MS;
+        this.startServerSimulation(match);
+        this.sendMatchEvent(match, 'match-start', { ...this.getMatchPayload(match, match.players[0].id), playerIndex: 0 });
+        return { ok: true, message: 'Match starting...' };
     }
 
     openStream(req, res, verifyToken) {
@@ -1363,6 +1420,8 @@ class MatchService {
             if (match.stateSnapshot) {
                 res.write(`event: match-state\ndata: ${JSON.stringify(match.stateSnapshot)}\n\n`);
             }
+        } else if (match.matchType === 'custom') {
+            res.write(`event: room-state\ndata: ${JSON.stringify(this.getRoomState(match, decoded.id))}\n\n`);
         }
 
         const syncTimer = setInterval(() => {
@@ -1489,6 +1548,8 @@ class MatchService {
             if (match.stateSnapshot?.events?.length) {
                 socket.send(JSON.stringify({ event: 'match-events', payload: match.stateSnapshot.events }));
             }
+        } else if (match.matchType === 'custom') {
+            socket.send(JSON.stringify({ event: 'room-state', payload: this.getRoomState(match, decoded.id) }));
         }
 
         socket.on('message', raw => {

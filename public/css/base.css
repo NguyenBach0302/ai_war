@@ -1079,6 +1079,32 @@ canvas {
   text-align: center;
 }
 
+.custom-room-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.custom-room-strip {
+  margin-bottom: 0;
+}
+
+.custom-room-players {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.custom-room-player {
+  padding: 16px;
+}
+
+.custom-room-player strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--accent);
+}
+
 .profile-panel {
   width: min(1040px, calc(100vw - 24px));
 }

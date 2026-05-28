@@ -40,6 +40,12 @@ function createMatchRouter({ authenticate, matchService, unitService, verifyMatc
         res.json(payload);
     }));
 
+    router.post('/custom/start', authenticate, (req, res) => {
+        const result = matchService.startCustomRoom(req.body.matchId, req.user.id);
+        if (!result.ok) return res.status(result.status || 400).json({ message: result.message || 'Unable to start custom room' });
+        res.json(result);
+    });
+
     router.get('/stream', (req, res) => {
         matchService.openStream(req, res, verifyMatchToken);
     });

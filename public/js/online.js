@@ -8,6 +8,65 @@
     let pingMs = null;
     let currentMatchType = 'ranked';
     let currentRoomCode = null;
+    let roomState = null;
+
+    function setRoomStatus(message) {
+        const el = document.getElementById('custom-room-status');
+        if (el) el.textContent = message || '';
+    }
+
+    function setLobbyVisible(visible) {
+        const setupView = document.getElementById('setup-matchmaking-view');
+        const roomView = document.getElementById('custom-room-view');
+        if (setupView) setupView.style.display = visible ? 'none' : '';
+        if (roomView) roomView.style.display = visible ? 'flex' : 'none';
+    }
+
+    function renderRoomState() {
+        const codeEl = document.getElementById('custom-room-code');
+        const countEl = document.getElementById('custom-room-count');
+        const playersEl = document.getElementById('custom-room-players');
+        const startBtn = document.getElementById('custom-room-start-btn');
+        if (!codeEl || !countEl || !playersEl || !startBtn) return;
+        const players = Array.isArray(roomState?.players) ? roomState.players : [];
+        const roomCode = roomState?.roomCode || currentRoomCode || '------';
+        const playerCount = players.length;
+        const canStart = !!roomState?.canStart;
+        codeEl.textContent = roomCode;
+        countEl.textContent = `${playerCount} / 2`;
+        playersEl.innerHTML = [0, 1].map(idx => {
+            const player = players[idx];
+            if (player) {
+                return `
+                    <div class="panel custom-room-player">
+                        <div class="brand-kicker">${player.isHost ? 'Host' : 'Guest'}</div>
+                        <strong>${escapeHtml(player.username)}</strong>
+                    </div>
+                `;
+            }
+            return `
+                <div class="panel custom-room-player">
+                    <div class="brand-kicker">Waiting</div>
+                    <strong>Open Slot</strong>
+                </div>
+            `;
+        }).join('');
+        startBtn.disabled = !canStart;
+    }
+
+    function showRoomLobby(nextRoomState, message = '') {
+        roomState = nextRoomState || roomState || null;
+        if (roomState?.roomCode) currentRoomCode = roomState.roomCode;
+        setLobbyVisible(true);
+        renderRoomState();
+        if (message) setRoomStatus(message);
+    }
+
+    function hideRoomLobby() {
+        roomState = null;
+        setLobbyVisible(false);
+        setRoomStatus('');
+    }
 
     function setStatus(message) {
         const el = document.getElementById('online-status');
@@ -82,6 +141,7 @@
             currentMatchId = data.matchId;
             currentMatchType = data.matchType || 'ranked';
             currentRoomCode = data.roomCode || null;
+            hideRoomLobby();
             if (activeStartedMatchId === data.matchId) return;
             activeStartedMatchId = data.matchId;
             Game.init(null, {
@@ -132,12 +192,18 @@
             setStatus('Opponent disconnected. Match can continue, but they may stop responding.');
             return;
         }
+        if (eventName === 'room-state') {
+            showRoomLobby(payload, payload?.message || '');
+            if (payload?.message) setStatus(payload.message);
+            return;
+        }
         if (eventName === 'match-ended') {
             if (payload?.state) Game.applyAuthoritativeState(payload.state);
             currentMatchId = null;
             activeStartedMatchId = null;
             currentMatchType = 'ranked';
             currentRoomCode = null;
+            hideRoomLobby();
             stopPingLoop();
             closeStream();
             setStatus('Match ended.');
@@ -179,6 +245,7 @@
             source.addEventListener('match-state', event => handleRealtimeEvent('match-state', JSON.parse(event.data)));
             source.addEventListener('match-events', event => handleRealtimeEvent('match-events', JSON.parse(event.data || '[]')));
             source.addEventListener('match-visual', event => handleRealtimeEvent('match-visual', JSON.parse(event.data)));
+            source.addEventListener('room-state', event => handleRealtimeEvent('room-state', JSON.parse(event.data || '{}')));
             source.addEventListener('player-disconnected', event => handleRealtimeEvent('player-disconnected', JSON.parse(event.data || '{}')));
             source.addEventListener('match-ended', event => handleRealtimeEvent('match-ended', JSON.parse(event.data || '{}')));
             source.onerror = () => setStatus('Online connection interrupted. Reconnecting...');
@@ -231,6 +298,7 @@
             currentMatchType = data.matchType || 'custom';
             currentRoomCode = data.roomCode || null;
             openStream(data.matchId);
+            showRoomLobby(data.roomState || null, `Custom room ${data.roomCode} created. Share this ID with your friend.`);
             setStatus(`Custom room ${data.roomCode} created. Share this ID with your friend.`);
         } catch (err) {
             setStatus(err.message || 'Unable to open custom room.');
@@ -264,10 +332,43 @@
             currentMatchType = data.matchType || 'custom';
             currentRoomCode = data.roomCode || normalizedRoomId;
             openStream(data.matchId);
-            setStatus(`Custom room ${currentRoomCode} ready. Launching match...`);
+            showRoomLobby(data.roomState || null, `Joined custom room ${currentRoomCode}.`);
+            setStatus(`Joined custom room ${currentRoomCode}.`);
         } catch (err) {
             setStatus(err.message || 'Unable to join custom room.');
         }
+    }
+
+    async function startCustomRoom() {
+        if (!currentMatchId) return;
+        setRoomStatus('Starting room...');
+        try {
+            const res = await fetch('/api/match/custom/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({ matchId: currentMatchId })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Unable to start custom room');
+            if (data?.message) {
+                setRoomStatus(data.message);
+                setStatus(data.message);
+            }
+        } catch (err) {
+            const message = err.message || 'Unable to start custom room.';
+            setRoomStatus(message);
+            setStatus(message);
+        }
+    }
+
+    function leaveRoomLobby() {
+        leave();
+        hideRoomLobby();
+        setStatus('');
+        document.getElementById('setup-overlay').style.display = 'flex';
     }
 
     async function sendBuy(unitType) {
@@ -310,6 +411,7 @@
         activeStartedMatchId = null;
         currentMatchType = 'ranked';
         currentRoomCode = null;
+        hideRoomLobby();
         stopPingLoop();
         closeStream();
     }
@@ -319,9 +421,10 @@
         activeStartedMatchId = null;
         currentMatchType = 'ranked';
         currentRoomCode = null;
+        hideRoomLobby();
         stopPingLoop();
     }
 
-    return { findMatch, openCustomRoom, joinCustomRoom, sendBuy, leave, clearLocalMatch, renderPing };
+    return { findMatch, openCustomRoom, joinCustomRoom, startCustomRoom, leaveRoomLobby, sendBuy, leave, clearLocalMatch, renderPing };
 })();
 

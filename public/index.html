@@ -162,46 +162,77 @@
     <!-- ADVANCED PER-AGENT SETUP -->
     <div id="setup-overlay" style="display:none;">
         <div class="setup-box panel setup-menu">
-            <div class="setup-header">
-                <div>
-                    <div class="brand-kicker">War Room</div>
-                    <div class="setup-title">Strategic Configuration</div>
+            <div id="setup-matchmaking-view">
+                <div class="setup-header">
+                    <div>
+                        <div class="brand-kicker">War Room</div>
+                        <div class="setup-title">Strategic Configuration</div>
+                    </div>
+                    <div class="setup-header-actions">
+                        <button class="buy-btn secondary-btn setup-small-btn" onclick="Profile.show()">Profile</button>
+                        <button class="buy-btn secondary-btn setup-small-btn" onclick="Auth.logout()">Logout</button>
+                        <div id="admin-setup-btn-wrap"></div>
+                    </div>
                 </div>
-                <div class="setup-header-actions">
-                    <button class="buy-btn secondary-btn setup-small-btn" onclick="Profile.show()">Profile</button>
-                    <button class="buy-btn secondary-btn setup-small-btn" onclick="Auth.logout()">Logout</button>
-                    <div id="admin-setup-btn-wrap"></div>
+
+                <div class="match-strip">
+                    <div class="match-meta">
+                        <span>Match Type</span>
+                        <strong>Commander vs Agent</strong>
+                    </div>
+                    <div class="setup-row">
+                        <label>Online Squad</label>
+                        <select id="online-loadout-slot"></select>
+                    </div>
+                    <div class="setup-row">
+                        <label>Combatants</label>
+                        <select id="player-count" onchange="Game.updateSetupUI()">
+                            <option value="2" selected>2 Players</option>
+                        </select>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="match-strip">
-                <div class="match-meta">
-                    <span>Match Type</span>
-                    <strong>Commander vs Agent</strong>
+
+                <div class="setup-grid-config" id="agents-config">
+                    <!-- Config cards for 2 players -->
                 </div>
-                <div class="setup-row">
-                    <label>Online Squad</label>
-                    <select id="online-loadout-slot"></select>
+
+                <div class="setup-actions">
+                    <button class="buy-btn primary-action" onclick="Online.findMatch()">Find Online Match</button>
+                    <button class="buy-btn secondary-btn primary-action" onclick="Online.openCustomRoom()">Create the custom room</button>
+                    <button class="buy-btn secondary-btn primary-action" onclick="Online.joinCustomRoom()">Join room</button>
+                    <button class="buy-btn secondary-btn primary-action" onclick="Game.init()">Play vs AI</button>
                 </div>
-                <div class="setup-row">
-                    <label>Combatants</label>
-                    <select id="player-count" onchange="Game.updateSetupUI()">
-                        <option value="2" selected>2 Players</option>
-                    </select>
-                </div>
+                <div id="online-status" class="online-status"></div>
             </div>
 
-            <div class="setup-grid-config" id="agents-config">
-                <!-- Config cards for 2 players -->
+            <div id="custom-room-view" class="custom-room-view" style="display:none;">
+                <div class="setup-header">
+                    <div>
+                        <div class="brand-kicker">Custom Room</div>
+                        <div class="setup-title">Room Lobby</div>
+                        <div class="auth-subtitle">Invite a friend and start when everyone is ready.</div>
+                    </div>
+                    <div class="setup-header-actions">
+                        <button class="buy-btn secondary-btn setup-small-btn" onclick="Online.leaveRoomLobby()">Back</button>
+                    </div>
+                </div>
+                <div class="match-strip custom-room-strip">
+                    <div class="match-meta">
+                        <span>Room ID</span>
+                        <strong id="custom-room-code">------</strong>
+                    </div>
+                    <div class="match-meta">
+                        <span>Players</span>
+                        <strong id="custom-room-count">1 / 2</strong>
+                    </div>
+                </div>
+                <div id="custom-room-players" class="custom-room-players"></div>
+                <div class="setup-actions">
+                    <button id="custom-room-start-btn" class="buy-btn primary-action" onclick="Online.startCustomRoom()" disabled>Start</button>
+                    <button class="buy-btn secondary-btn primary-action" onclick="Online.leaveRoomLobby()">Leave room</button>
+                </div>
+                <div id="custom-room-status" class="online-status"></div>
             </div>
-
-            <div class="setup-actions">
-                <button class="buy-btn primary-action" onclick="Online.findMatch()">Find Online Match</button>
-                <button class="buy-btn secondary-btn primary-action" onclick="Online.openCustomRoom()">Create the custom room</button>
-                <button class="buy-btn secondary-btn primary-action" onclick="Online.joinCustomRoom()">Join room</button>
-                <button class="buy-btn secondary-btn primary-action" onclick="Game.init()">Play vs AI</button>
-            </div>
-            <div id="online-status" class="online-status"></div>
         </div>
     </div>
 
