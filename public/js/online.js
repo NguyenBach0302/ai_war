@@ -213,20 +213,15 @@
     }
 
     async function openCustomRoom() {
-        const roomId = window.prompt('Enter a custom room ID to join a friend. Leave it blank to create a new custom room.');
-        if (roomId === null) return;
-        const isJoin = roomId !== null && roomId.trim() !== '';
-        const endpoint = isJoin ? '/api/match/custom/join' : '/api/match/custom/create';
-        setStatus(isJoin ? 'Joining custom room...' : 'Creating custom room...');
+        setStatus('Creating custom room...');
         try {
-            const res = await fetch(endpoint, {
+            const res = await fetch('/api/match/custom/create', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${Auth.getToken()}`
                 },
                 body: JSON.stringify({
-                    roomCode: isJoin ? roomId.trim() : null,
                     loadoutSlot: Game.getSelectedLoadoutSlot()
                 })
             });
@@ -236,13 +231,42 @@
             currentMatchType = data.matchType || 'custom';
             currentRoomCode = data.roomCode || null;
             openStream(data.matchId);
-            if (data.status === 'waiting') {
-                setStatus(`Custom room ${data.roomCode} created. Share this ID with your friend.`);
-            } else {
-                setStatus(`Custom room ${data.roomCode} ready. Launching match...`);
-            }
+            setStatus(`Custom room ${data.roomCode} created. Share this ID with your friend.`);
         } catch (err) {
             setStatus(err.message || 'Unable to open custom room.');
+        }
+    }
+
+    async function joinCustomRoom() {
+        const roomId = window.prompt('Enter the custom room ID.');
+        if (roomId === null) return;
+        const normalizedRoomId = roomId.trim();
+        if (!normalizedRoomId) {
+            setStatus('Room ID is required.');
+            return;
+        }
+        setStatus('Joining custom room...');
+        try {
+            const res = await fetch('/api/match/custom/join', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({
+                    roomCode: normalizedRoomId,
+                    loadoutSlot: Game.getSelectedLoadoutSlot()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Unable to join custom room');
+            currentMatchId = data.matchId;
+            currentMatchType = data.matchType || 'custom';
+            currentRoomCode = data.roomCode || normalizedRoomId;
+            openStream(data.matchId);
+            setStatus(`Custom room ${currentRoomCode} ready. Launching match...`);
+        } catch (err) {
+            setStatus(err.message || 'Unable to join custom room.');
         }
     }
 
@@ -298,6 +322,6 @@
         stopPingLoop();
     }
 
-    return { findMatch, openCustomRoom, sendBuy, leave, clearLocalMatch, renderPing };
+    return { findMatch, openCustomRoom, joinCustomRoom, sendBuy, leave, clearLocalMatch, renderPing };
 })();
 
