@@ -58,8 +58,11 @@
         roomState = nextRoomState || roomState || null;
         if (roomState?.roomCode) currentRoomCode = roomState.roomCode;
         const overlay = document.getElementById('setup-overlay');
+        const setupView = document.getElementById('setup-matchmaking-view');
+        const roomView = document.getElementById('custom-room-view');
         if (overlay) overlay.style.display = 'flex';
-        setLobbyVisible(true);
+        if (setupView) setupView.style.display = 'none';
+        if (roomView) roomView.style.display = 'flex';
         renderRoomState();
         if (message) setRoomStatus(message);
     }
@@ -333,8 +336,13 @@
             currentMatchId = data.matchId;
             currentMatchType = data.matchType || 'custom';
             currentRoomCode = data.roomCode || normalizedRoomId;
+            roomState = data.roomState || {
+                roomCode: currentRoomCode,
+                players: [],
+                canStart: false
+            };
+            showRoomLobby(roomState, `Joined custom room ${currentRoomCode}.`);
             openStream(data.matchId);
-            showRoomLobby(data.roomState || null, `Joined custom room ${currentRoomCode}.`);
             setStatus(`Joined custom room ${currentRoomCode}.`);
         } catch (err) {
             setStatus(err.message || 'Unable to join custom room.');
