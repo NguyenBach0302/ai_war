@@ -18,6 +18,7 @@
     let players = [], units = [], projectiles = [], vfx = [], particles = [], floatingTexts = [], unitsPending = [];
     let aiProcessFlags = [false, false]; 
     let onlineMode = false, onlineMatchId = null, localPlayerIndex = 0, rngState = 1, fxRngState = 1;
+    let onlineMatchType = 'ranked', onlineRoomCode = null;
     let onlineAuthoritative = false, onlineStateSeq = 0, onlineLastPublishedFrame = 0, onlinePublishInFlight = false;
     let onlineActions = [], simulationStartedAt = 0, onlineStartsAtServerMs = 0, onlineConfirmedFrame = 0;
     let processedOnlineActionIds = new Set();
@@ -1535,11 +1536,18 @@
     }
 
     async function recordResult(result) {
+        if (onlineMode && onlineMatchType === 'custom') return;
         try {
             await fetch('/api/game/end', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${Auth.getToken()}` },
-                body: JSON.stringify({ winnerId: result === 'win' ? Auth.getUser().id : null, duration: frameCount, result })
+                body: JSON.stringify({
+                    winnerId: result === 'win' ? Auth.getUser().id : null,
+                    duration: frameCount,
+                    result,
+                    matchType: onlineMode ? onlineMatchType : 'local',
+                    roomCode: onlineRoomCode
+                })
             });
         } catch (e) { console.error("Error recording result:", e); }
     }
@@ -2803,6 +2811,8 @@
         document.getElementById('setup-overlay').style.display = 'none';
         onlineMode = !!options.online;
         onlineMatchId = options.matchId || null;
+        onlineMatchType = options.matchType || 'ranked';
+        onlineRoomCode = options.roomCode || null;
         if (!onlineMode) Online.clearLocalMatch();
         else Online.renderPing();
         activeShopUnitNames = Array.isArray(options.loadoutUnitNames) && options.loadoutUnitNames.length
@@ -2896,7 +2906,7 @@
         }
         updateGameplayOverlayPosition();
         
-        log(onlineMode ? `ONLINE MATCH ${onlineMatchId} LINKED.` : (state ? `SESSION RESUMED AT FRAME ${frameCount}.` : `STRATEGIC SESSION INITIALIZED.`), '#38bdf8');
+        log(onlineMode ? `${onlineMatchType === 'custom' ? `CUSTOM ROOM ${onlineRoomCode || onlineMatchId}` : `ONLINE MATCH ${onlineMatchId}`} LINKED.` : (state ? `SESSION RESUMED AT FRAME ${frameCount}.` : `STRATEGIC SESSION INITIALIZED.`), '#38bdf8');
         log(`Commander ${players[localPlayerIndex].name} online.`, '#fff');
         
         paused = false;

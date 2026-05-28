@@ -15,6 +15,31 @@ function createMatchRouter({ authenticate, matchService, unitService, verifyMatc
         res.json(payload);
     }));
 
+    router.post('/custom/create', authenticate, asyncHandler(async (req, res) => {
+        const loadoutUnitNames = await unitService.resolveUserLoadout(req.user.id, req.body?.loadoutSlot);
+        const payload = await matchService.createCustomRoom({
+            id: req.user.id,
+            username: req.user.username,
+            loadoutSlot: [1, 2, 3].includes(Number(req.body?.loadoutSlot)) ? Number(req.body.loadoutSlot) : null,
+            loadoutUnitNames
+        });
+        res.json(payload);
+    }));
+
+    router.post('/custom/join', authenticate, asyncHandler(async (req, res) => {
+        const loadoutUnitNames = await unitService.resolveUserLoadout(req.user.id, req.body?.loadoutSlot);
+        const payload = await matchService.joinCustomRoom(String(req.body?.roomCode || ''), {
+            id: req.user.id,
+            username: req.user.username,
+            loadoutSlot: [1, 2, 3].includes(Number(req.body?.loadoutSlot)) ? Number(req.body.loadoutSlot) : null,
+            loadoutUnitNames
+        });
+        if (payload?.status && payload.status >= 400) {
+            return res.status(payload.status).json({ message: payload.message || 'Unable to join custom room' });
+        }
+        res.json(payload);
+    }));
+
     router.get('/stream', (req, res) => {
         matchService.openStream(req, res, verifyMatchToken);
     });

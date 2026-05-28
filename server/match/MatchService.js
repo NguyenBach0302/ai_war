@@ -83,6 +83,52 @@ class MatchService {
         return `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
     }
 
+    makeRoomCode() {
+        return String(Math.floor(100000 + Math.random() * 900000));
+    }
+
+    findActiveMatchForUser(userId, matchType) {
+        for (const match of this.matches.values()) {
+            if (!match.ended && match.matchType === matchType && match.players.some(player => player.id === userId)) {
+                return match;
+            }
+        }
+        return null;
+    }
+
+    findCustomRoomByCode(roomCode) {
+        const normalized = String(roomCode || '').trim();
+        if (!normalized) return null;
+        for (const match of this.matches.values()) {
+            if (!match.ended && match.matchType === 'custom' && String(match.roomCode) === normalized) return match;
+        }
+        return null;
+    }
+
+    async createMatchRecord(user, matchType, roomCode = null) {
+        return {
+            id: this.makeMatchId(),
+            matchType,
+            roomCode,
+            players: [user],
+            clients: new Map(),
+            wsClients: new Map(),
+            seed: Math.floor(Math.random() * 0xffffffff),
+            units: await this.getUnitSnapshot(),
+            startsAt: null,
+            started: false,
+            ended: false,
+            createdAt: Date.now(),
+            nextActionId: 1,
+            lastActionFrame: 0,
+            actionLog: [],
+            stateSeq: 0,
+            stateSnapshot: null,
+            stateLog: [],
+            eventHistory: []
+        };
+    }
+
     sendMatchEvent(match, event, payload) {
         const data = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
         match.clients.forEach(client => client.write(data));
@@ -1182,6 +1228,8 @@ class MatchService {
         const player = match.players.find(player => player.id === userId);
         return {
             matchId: match.id,
+            matchType: match.matchType || 'ranked',
+            roomCode: match.roomCode || null,
             playerIndex: match.players.findIndex(player => player.id === userId),
             players: match.players.map(player => ({ id: player.id, username: player.username })),
             loadoutSlot: player?.loadoutSlot || 1,
@@ -1228,15 +1276,12 @@ class MatchService {
     }
 
     async joinMatch(user) {
-        for (const match of this.matches.values()) {
-            if (!match.ended && match.players.some(player => player.id === user.id)) {
-                return { status: match.started ? 'started' : 'waiting', ...this.getMatchPayload(match, user.id) };
-            }
-        }
+        const existingMatch = this.findActiveMatchForUser(user.id, 'ranked');
+        if (existingMatch) return { status: existingMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(existingMatch, user.id) };
 
         const waitingId = this.waitingMatches.shift();
         const waitingMatch = waitingId ? this.matches.get(waitingId) : null;
-        if (waitingMatch && waitingMatch.players.length === 1 && waitingMatch.players[0].id !== user.id) {
+        if (waitingMatch && !waitingMatch.ended && waitingMatch.matchType === 'ranked' && waitingMatch.players.length === 1 && waitingMatch.players[0].id !== user.id) {
             waitingMatch.players.push(user);
             waitingMatch.started = true;
             waitingMatch.startsAt = Date.now() + this.MATCH_START_DELAY_MS;
@@ -1245,28 +1290,47 @@ class MatchService {
             return { status: 'started', ...this.getMatchPayload(waitingMatch, user.id) };
         }
 
-        const match = {
-            id: this.makeMatchId(),
-            players: [user],
-            clients: new Map(),
-            wsClients: new Map(),
-            seed: Math.floor(Math.random() * 0xffffffff),
-            units: await this.getUnitSnapshot(),
-            startsAt: null,
-            started: false,
-            ended: false,
-            createdAt: Date.now(),
-            nextActionId: 1,
-            lastActionFrame: 0,
-            actionLog: [],
-            stateSeq: 0,
-            stateSnapshot: null,
-            stateLog: [],
-            eventHistory: []
-        };
+        const match = await this.createMatchRecord(user, 'ranked');
         this.matches.set(match.id, match);
         this.waitingMatches.push(match.id);
         return { status: 'waiting', ...this.getMatchPayload(match, user.id) };
+    }
+
+    async createCustomRoom(user) {
+        const existingMatch = this.findActiveMatchForUser(user.id, 'custom');
+        if (existingMatch) return { status: existingMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(existingMatch, user.id) };
+
+        let roomCode = this.makeRoomCode();
+        while (this.findCustomRoomByCode(roomCode)) roomCode = this.makeRoomCode();
+        const match = await this.createMatchRecord(user, 'custom', roomCode);
+        this.matches.set(match.id, match);
+        return { status: 'waiting', ...this.getMatchPayload(match, user.id) };
+    }
+
+    async joinCustomRoom(roomCode, user) {
+        const existingMatch = this.findActiveMatchForUser(user.id, 'custom');
+        if (existingMatch) return { status: existingMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(existingMatch, user.id) };
+
+        if (!String(roomCode || '').trim()) {
+            return { message: 'Custom room ID is required', status: 400 };
+        }
+        const targetMatch = this.findCustomRoomByCode(roomCode);
+        if (!targetMatch) {
+            return { message: 'Custom room not found', status: 404 };
+        }
+        if (targetMatch.started || targetMatch.players.length !== 1) {
+            return { message: 'Custom room is already full', status: 409 };
+        }
+        if (targetMatch.players[0].id === user.id) {
+            return { status: targetMatch.started ? 'started' : 'waiting', ...this.getMatchPayload(targetMatch, user.id) };
+        }
+
+        targetMatch.players.push(user);
+        targetMatch.started = true;
+        targetMatch.startsAt = Date.now() + this.MATCH_START_DELAY_MS;
+        this.startServerSimulation(targetMatch);
+        this.sendMatchEvent(targetMatch, 'match-start', { ...this.getMatchPayload(targetMatch, targetMatch.players[0].id), playerIndex: 0 });
+        return { status: 'started', ...this.getMatchPayload(targetMatch, user.id) };
     }
 
     openStream(req, res, verifyToken) {

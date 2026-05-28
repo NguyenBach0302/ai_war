@@ -6,6 +6,8 @@
     let commandSeq = 1;
     let pingTimer = null;
     let pingMs = null;
+    let currentMatchType = 'ranked';
+    let currentRoomCode = null;
 
     function setStatus(message) {
         const el = document.getElementById('online-status');
@@ -78,11 +80,15 @@
         if (eventName === 'match-start') {
             const data = payload;
             currentMatchId = data.matchId;
+            currentMatchType = data.matchType || 'ranked';
+            currentRoomCode = data.roomCode || null;
             if (activeStartedMatchId === data.matchId) return;
             activeStartedMatchId = data.matchId;
             Game.init(null, {
                 online: true,
                 matchId: data.matchId,
+                matchType: currentMatchType,
+                roomCode: currentRoomCode,
                 playerIndex: data.playerIndex,
                 players: data.players,
                 seed: data.seed,
@@ -130,6 +136,9 @@
             if (payload?.state) Game.applyAuthoritativeState(payload.state);
             currentMatchId = null;
             activeStartedMatchId = null;
+            currentMatchType = 'ranked';
+            currentRoomCode = null;
+            stopPingLoop();
             closeStream();
             setStatus('Match ended.');
         }
@@ -190,6 +199,8 @@
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || 'Unable to join online match');
             currentMatchId = data.matchId;
+            currentMatchType = data.matchType || 'ranked';
+            currentRoomCode = data.roomCode || null;
             openStream(data.matchId);
             if (data.status === 'waiting') {
                 setStatus('Waiting for player 2 to join from another device...');
@@ -198,6 +209,40 @@
             }
         } catch (err) {
             setStatus(err.message || 'Unable to start online match.');
+        }
+    }
+
+    async function openCustomRoom() {
+        const roomId = window.prompt('Enter a custom room ID to join a friend. Leave it blank to create a new custom room.');
+        if (roomId === null) return;
+        const isJoin = roomId !== null && roomId.trim() !== '';
+        const endpoint = isJoin ? '/api/match/custom/join' : '/api/match/custom/create';
+        setStatus(isJoin ? 'Joining custom room...' : 'Creating custom room...');
+        try {
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${Auth.getToken()}`
+                },
+                body: JSON.stringify({
+                    roomCode: isJoin ? roomId.trim() : null,
+                    loadoutSlot: Game.getSelectedLoadoutSlot()
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Unable to open custom room');
+            currentMatchId = data.matchId;
+            currentMatchType = data.matchType || 'custom';
+            currentRoomCode = data.roomCode || null;
+            openStream(data.matchId);
+            if (data.status === 'waiting') {
+                setStatus(`Custom room ${data.roomCode} created. Share this ID with your friend.`);
+            } else {
+                setStatus(`Custom room ${data.roomCode} ready. Launching match...`);
+            }
+        } catch (err) {
+            setStatus(err.message || 'Unable to open custom room.');
         }
     }
 
@@ -239,6 +284,8 @@
         }
         currentMatchId = null;
         activeStartedMatchId = null;
+        currentMatchType = 'ranked';
+        currentRoomCode = null;
         stopPingLoop();
         closeStream();
     }
@@ -246,9 +293,11 @@
     function clearLocalMatch() {
         currentMatchId = null;
         activeStartedMatchId = null;
+        currentMatchType = 'ranked';
+        currentRoomCode = null;
         stopPingLoop();
     }
 
-    return { findMatch, sendBuy, leave, clearLocalMatch, renderPing };
+    return { findMatch, openCustomRoom, sendBuy, leave, clearLocalMatch, renderPing };
 })();
 

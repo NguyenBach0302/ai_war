@@ -5,7 +5,10 @@ function createGameRouter({ authenticate, pool }) {
     const router = express.Router();
 
     router.post('/end', authenticate, asyncHandler(async (req, res) => {
-        const { winnerId, duration, result } = req.body;
+        const { winnerId, duration, result, matchType } = req.body;
+        if (String(matchType || '') === 'custom') {
+            return res.json({ message: 'Custom game result ignored' });
+        }
         await pool.query('INSERT INTO games (winner_id, duration) VALUES (?, ?)', [winnerId, duration]);
 
         if (result === 'win') {
