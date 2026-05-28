@@ -82,6 +82,7 @@
 
   .profile-deck-listbox,
   .profile-loadout-head input,
+  .admin-unit-picker,
   .setup-row select {
     width: 100%;
     min-width: 0;
@@ -159,12 +160,32 @@
 
 @media (max-width: 720px) and (orientation: portrait) {
   .admin-shell {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(var(--app-height) - 16px);
     padding: 14px;
   }
 
   .admin-title {
     margin-bottom: 14px;
     font-size: 1.2rem;
+  }
+
+  .admin-toolbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .admin-picker-group label {
+    margin-bottom: 6px;
+    font-size: 0.72rem;
+  }
+
+  .admin-unit-picker {
+    min-height: 42px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    font-size: 0.92rem;
   }
 
   #admin-unit-list {
@@ -211,6 +232,12 @@
     padding: 10px 12px;
     border-radius: 14px;
     font-size: 0.92rem;
+  }
+
+  .admin-message {
+    padding: 12px 14px;
+    border-radius: 14px;
+    font-size: 0.76rem;
   }
 
   .dialog-actions {

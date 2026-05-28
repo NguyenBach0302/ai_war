@@ -827,6 +827,7 @@ canvas {
 .agent-setup-card select,
 .auth-input-group input,
 .profile-loadout-head input,
+.admin-unit-picker,
 .profile-deck-listbox {
   width: 100%;
   min-height: 48px;
@@ -1594,6 +1595,8 @@ canvas {
 
 .admin-shell {
   width: min(1120px, calc(100vw - 24px));
+  max-height: min(880px, calc(100vh - 24px));
+  overflow-y: auto;
 }
 
 .admin-title {
@@ -1603,8 +1606,27 @@ canvas {
 
 #admin-unit-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
+}
+
+.admin-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+
+.admin-picker-group {
+  margin-bottom: 0;
+}
+
+.admin-picker-group label {
+  margin-bottom: 8px;
+}
+
+.admin-message:empty {
+  display: none;
 }
 
 .admin-unit-card {
