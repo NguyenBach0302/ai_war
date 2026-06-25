@@ -124,7 +124,12 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
     border: 1.5px solid var(--tc); cursor: grab; user-select: none;
 }
 .chip:active { cursor: grabbing; transform: scale(.95); }
-.chip-icon { font-size: clamp(16px, 5vw, 26px); }
+.chip { box-shadow: 0 0 0 1px color-mix(in srgb, var(--th, var(--tc)) 40%, transparent) inset; }
+.chip::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(60% 60% at 50% 18%, color-mix(in srgb, var(--th, var(--tc)) 38%, transparent), transparent 70%);
+}
+.chip-icon { font-size: clamp(16px, 5vw, 26px); position: relative; z-index: 1; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
 .chip .stars { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); font-size: 9px; letter-spacing: -1px; text-shadow: 0 1px 2px #000; }
 .chip .stars.s2 { color: #e5e7eb; }
 .chip .stars.s3 { color: var(--gold); }
@@ -172,8 +177,15 @@ button { font-family: inherit; cursor: pointer; border: none; color: inherit; }
     padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 2px;
     text-align: center; transition: transform .12s, box-shadow .12s; min-height: 92px; justify-content: center;
 }
+.shop-card { position: relative; overflow: hidden; }
+.sc-theme {
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, transparent, var(--th, var(--tc)), transparent);
+    box-shadow: 0 0 8px var(--th, var(--tc));
+}
+.shop-card .sc-icon { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--th, var(--tc)) 70%, transparent)); }
 .shop-card:not(.empty):active { transform: translateY(2px); }
-.shop-card:not(.empty):hover { box-shadow: 0 6px 18px -8px var(--tc); }
+.shop-card:not(.empty):hover { box-shadow: 0 6px 18px -8px var(--th, var(--tc)); }
 .shop-card.empty { opacity: .25; border-style: dashed; pointer-events: none; }
 .shop-card.unaffordable { opacity: .5; }
 .sc-icon { font-size: clamp(20px, 6vw, 30px); }
